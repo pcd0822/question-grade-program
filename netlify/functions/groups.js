@@ -14,7 +14,7 @@ export async function handler(event) {
           admin.from('groups').select('*').order('created_at', { ascending: true }),
           admin
             .from('students')
-            .select('id, student_no, name, group_id, avatar_url')
+            .select('id, student_no, name, code, group_id, avatar_url')
             .order('student_no', { ascending: true }),
           sumSeedByStudent(),
         ])
