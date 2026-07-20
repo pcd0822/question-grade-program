@@ -1,7 +1,7 @@
 // 교사 쓰기/조회 API 래퍼 — 저장된 교사 코드를 자동으로 붙인다.
 import { callFn } from './api'
 import { getTeacherCode } from './session'
-import type { Comment, Lesson, QuestionStage, Student } from '../types'
+import type { Badge, Comment, Lesson, QuestionStage, Student } from '../types'
 
 function tc() {
   return getTeacherCode() || ''
@@ -99,6 +99,27 @@ export const teacher = {
   deleteGroup: (id: string) => callFn('groups', { action: 'delete-group', teacherCode: tc(), id }),
   assign: (studentId: string, groupId: string | null) =>
     callFn('groups', { action: 'assign', teacherCode: tc(), studentId, groupId }),
+
+  // 배지
+  listBadges: () =>
+    callFn<{ badges: Badge[]; awarded: { student_id: string; badge_id: string }[] }>('badges', {
+      action: 'list',
+      teacherCode: tc(),
+    }),
+  createBadge: (name: string, condition: string, lessonId: string | null, imageDataUrl: string | null) =>
+    callFn<{ badge: Badge }>('badges', {
+      action: 'create',
+      teacherCode: tc(),
+      name,
+      condition,
+      lessonId,
+      imageDataUrl,
+    }).then((r) => r.badge),
+  deleteBadge: (id: string) => callFn('badges', { action: 'delete', teacherCode: tc(), id }),
+  awardBadge: (studentId: string, badgeId: string) =>
+    callFn('badges', { action: 'award', teacherCode: tc(), studentId, badgeId }),
+  revokeBadge: (studentId: string, badgeId: string) =>
+    callFn('badges', { action: 'revoke', teacherCode: tc(), studentId, badgeId }),
 
   // 개인설정
   getSettings: () =>

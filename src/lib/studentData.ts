@@ -1,6 +1,15 @@
 // 학생 화면용 읽기 (anon Supabase). 질문은 익명, 댓글은 실명(비정규화된 이름/아바타).
 import { supabase } from './supabase'
-import type { Comment, Lesson, Question, Submission } from '../types'
+import type { Badge, Comment, Lesson, Question, Submission } from '../types'
+
+/** 내가 받은 배지 */
+export async function fetchMyBadges(studentId: string): Promise<Badge[]> {
+  const { data } = await supabase
+    .from('student_badges')
+    .select('badges(*)')
+    .eq('student_id', studentId)
+  return (data || []).map((r) => (r as unknown as { badges: Badge }).badges).filter(Boolean)
+}
 
 /** 활성 수업 목록 */
 export async function fetchActiveLessons(): Promise<Lesson[]> {

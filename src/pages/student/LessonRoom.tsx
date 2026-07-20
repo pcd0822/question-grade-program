@@ -230,7 +230,6 @@ function QuestionCard({ qv, me, onChanged }: { qv: QuestionView; me: StudentSess
         <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-slate-800">
           <CommentIcon size={20} /> {qv.comments.length}
         </button>
-        <span className="ml-auto text-xs text-slate-400">{open ? '접기 ▲' : '댓글 보기 ▼'}</span>
       </div>
 
       {/* 펼침: 댓글 */}

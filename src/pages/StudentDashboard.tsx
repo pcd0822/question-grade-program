@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Lesson, StudentSession } from '../types'
-import { fetchActiveLessons, fetchMySeeds } from '../lib/studentData'
+import type { Badge, Lesson, StudentSession } from '../types'
+import { fetchActiveLessons, fetchMyBadges, fetchMySeeds } from '../lib/studentData'
 import { student, type RankingRow } from '../lib/studentApi'
 import { compressToSquare } from '../lib/imageCompress'
 import { STAGE_LABEL } from '../types'
@@ -8,6 +8,7 @@ import { useRealtime } from '../hooks/useRealtime'
 import Avatar from '../components/Avatar'
 import AppShell, { type NavItem } from '../components/AppShell'
 import LessonRoom from './student/LessonRoom'
+import GroupRoom from './student/GroupRoom'
 
 interface Props {
   student: StudentSession
@@ -17,6 +18,7 @@ interface Props {
 
 const NAV: NavItem[] = [
   { key: 'home', label: '홈', icon: '🏠' },
+  { key: 'room', label: '모둠 공간', icon: '🏡' },
   { key: 'settings', label: '개인설정', icon: '⚙️' },
 ]
 
@@ -25,11 +27,13 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [seeds, setSeeds] = useState(0)
   const [ranking, setRanking] = useState<RankingRow[]>([])
+  const [badges, setBadges] = useState<Badge[]>([])
   const [active, setActive] = useState<Lesson | null>(null)
 
   const load = useCallback(() => {
     fetchActiveLessons().then(setLessons)
     fetchMySeeds(me.id).then(setSeeds)
+    fetchMyBadges(me.id).then(setBadges)
     student.ranking().then((r) => setRanking(r.ranking)).catch(() => {})
   }, [me.id])
 
@@ -37,7 +41,7 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
     document.body.style.background = '#f4f7f4'
     load()
   }, [load])
-  useRealtime(['lessons', 'seed_log', 'groups', 'students'], load)
+  useRealtime(['lessons', 'seed_log', 'groups', 'students', 'student_badges'], load)
 
   // 수업 입장 시 전체화면 리딩뷰
   if (active) {
@@ -55,11 +59,9 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
       onLogout={onLogout}
       maxWidth="max-w-3xl"
     >
-      {tab === 'home' ? (
-        <Home me={me} seeds={seeds} ranking={ranking} lessons={lessons} onEnter={setActive} />
-      ) : (
-        <StudentSettings me={me} onProfileChange={onProfileChange} />
-      )}
+      {tab === 'home' && <Home me={me} seeds={seeds} ranking={ranking} badges={badges} lessons={lessons} onEnter={setActive} />}
+      {tab === 'room' && <GroupRoom me={me} />}
+      {tab === 'settings' && <StudentSettings me={me} onProfileChange={onProfileChange} />}
     </AppShell>
   )
 }
@@ -68,12 +70,14 @@ function Home({
   me,
   seeds,
   ranking,
+  badges,
   lessons,
   onEnter,
 }: {
   me: StudentSession
   seeds: number
   ranking: RankingRow[]
+  badges: Badge[]
   lessons: Lesson[]
   onEnter: (l: Lesson) => void
 }) {
@@ -87,6 +91,25 @@ function Home({
         </div>
         <p className="text-right text-emerald-100 text-xs">질문·댓글·하트로<br />새싹을 모아보세요</p>
       </div>
+
+      {/* 내 배지 */}
+      {badges.length > 0 && (
+        <div>
+          <h2 className="font-bold text-slate-700 mb-2">내 배지 <span className="text-slate-400 font-normal">({badges.length})</span></h2>
+          <div className="flex flex-wrap gap-3 card">
+            {badges.map((b) => (
+              <div key={b.id} className="flex flex-col items-center w-16 text-center" title={b.condition}>
+                {b.image_url ? (
+                  <img src={b.image_url} alt={b.name} className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-xl">🏅</div>
+                )}
+                <span className="text-[11px] text-slate-600 mt-1 leading-tight">{b.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 모둠 랭킹 */}
       {ranking.length > 0 && (

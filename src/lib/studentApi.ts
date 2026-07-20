@@ -48,3 +48,46 @@ export const student = {
 
   ranking: () => callFn<{ ranking: RankingRow[]; classTotal: number }>('ranking', {}),
 }
+
+// ── 모둠 공간 ──
+export interface ShopItem {
+  type: string
+  name: string
+  emoji: string
+  price: number
+}
+export interface RoomItemT {
+  id: string
+  group_id: string
+  item_type: string
+  x: number
+  y: number
+}
+export interface RoomBadge {
+  id: string
+  name: string
+  image_url: string | null
+  student_name: string
+}
+export interface RoomMember {
+  id: string
+  name: string
+  avatar_url: string | null
+}
+export interface RoomState {
+  group: { id: string; name: string } | null
+  cumulative: number
+  wallet: number
+  items: RoomItemT[]
+  members: RoomMember[]
+  badges: RoomBadge[]
+}
+
+export const room = {
+  catalog: () => callFn<{ shop: ShopItem[]; cols: number; rows: number }>('room', { action: 'catalog' }),
+  state: (groupId: string) => callFn<RoomState>('room', { action: 'state', groupId }),
+  buy: (itemType: string) => callFn<RoomState>('room', { action: 'buy', ...creds(), itemType }),
+  move: (itemId: string, x: number, y: number) =>
+    callFn<RoomState>('room', { action: 'move', ...creds(), itemId, x, y }),
+  remove: (itemId: string) => callFn<RoomState>('room', { action: 'remove', ...creds(), itemId }),
+}

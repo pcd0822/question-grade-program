@@ -4,6 +4,7 @@ import Avatar from '../components/Avatar'
 import LessonManager from './teacher/LessonManager'
 import QuestionDashboard from './teacher/QuestionDashboard'
 import GroupManager from './teacher/GroupManager'
+import BadgeManager from './teacher/BadgeManager'
 import TeacherSettings from './teacher/TeacherSettings'
 import { teacher } from '../lib/teacherApi'
 
@@ -15,6 +16,7 @@ const NAV: NavItem[] = [
   { key: 'dashboard', label: '질문 대시보드', icon: '💬' },
   { key: 'lessons', label: '수업 관리', icon: '📚' },
   { key: 'students', label: '학생·모둠 관리', icon: '👥' },
+  { key: 'badges', label: '배지', icon: '🏅' },
   { key: 'settings', label: '개인설정', icon: '⚙️' },
 ]
 
@@ -40,6 +42,7 @@ export default function TeacherDashboard({ onLogout }: Props) {
       {tab === 'dashboard' && <QuestionDashboard />}
       {tab === 'lessons' && <LessonManager />}
       {tab === 'students' && <GroupManager />}
+      {tab === 'badges' && <BadgeManager />}
       {tab === 'settings' && <TeacherSettings avatar={avatar} onAvatarChange={setAvatar} />}
     </AppShell>
   )
