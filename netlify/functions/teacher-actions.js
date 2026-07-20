@@ -79,6 +79,11 @@ export async function handler(event) {
       case 'add-teacher-comment': {
         const text = String(body.text || '').trim()
         if (!body.questionId || !text) return json(400, { error: '댓글 내용을 입력하세요.' })
+        const { data: setting } = await admin
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'teacher_avatar_url')
+          .maybeSingle()
         const { data, error } = await admin
           .from('comments')
           .insert({
@@ -86,7 +91,7 @@ export async function handler(event) {
             author_type: 'teacher',
             student_id: null,
             author_name: '선생님',
-            author_avatar_url: null,
+            author_avatar_url: setting?.value || null,
             text,
             status: 'normal',
           })

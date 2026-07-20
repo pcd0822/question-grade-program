@@ -99,4 +99,14 @@ export const teacher = {
   deleteGroup: (id: string) => callFn('groups', { action: 'delete-group', teacherCode: tc(), id }),
   assign: (studentId: string, groupId: string | null) =>
     callFn('groups', { action: 'assign', teacherCode: tc(), studentId, groupId }),
+
+  // 개인설정
+  getSettings: () =>
+    callFn<{ avatar_url: string | null }>('teacher-settings', { action: 'get', teacherCode: tc() }),
+  setAvatar: (dataUrl: string) =>
+    callFn<{ avatar_url: string }>('teacher-settings', {
+      action: 'set-avatar',
+      teacherCode: tc(),
+      dataUrl,
+    }).then((r) => r.avatar_url),
 }

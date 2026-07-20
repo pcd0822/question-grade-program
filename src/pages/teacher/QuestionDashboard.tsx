@@ -7,6 +7,7 @@ import {
 import { STAGE_LABEL, type Comment, type Lesson } from '../../types'
 import { useRealtime } from '../../hooks/useRealtime'
 import Avatar from '../../components/Avatar'
+import { HeartIcon, CommentIcon } from '../../components/icons'
 import { seedBurstAt } from '../../lib/confetti'
 
 export default function QuestionDashboard() {
@@ -44,19 +45,29 @@ export default function QuestionDashboard() {
   return (
     <div className="space-y-4">
       <section className="card">
-        <label className="block">
-          <span className="block text-sm font-bold text-slate-600 mb-1">수업 선택</span>
-          <select className="input" value={lessonId} onChange={(e) => setLessonId(e.target.value)}>
-            {lessons.length === 0 && <option value="">개설된 수업이 없습니다</option>}
+        <span className="block text-sm font-bold text-slate-600 mb-2">수업 선택</span>
+        {lessons.length === 0 ? (
+          <p className="text-sm text-slate-400">개설된 수업이 없습니다.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
             {lessons.map((l) => (
-              <option key={l.id} value={l.id}>
+              <button
+                key={l.id}
+                onClick={() => setLessonId(l.id)}
+                className={`px-3 h-10 rounded-xl text-sm font-bold border transition-colors ${
+                  lessonId === l.id
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-emerald-300'
+                }`}
+              >
                 {l.active ? '🟢' : '⚪'} {l.period_label ? `[${l.period_label}] ` : ''}
-                {l.title} · {STAGE_LABEL[l.stage]}
-              </option>
+                {l.title}
+                <span className={lessonId === l.id ? 'text-emerald-100' : 'text-slate-400'}> · {STAGE_LABEL[l.stage]}</span>
+              </button>
             ))}
-          </select>
-        </label>
-        <p className="text-xs text-slate-400 mt-2">
+          </div>
+        )}
+        <p className="text-xs text-slate-400 mt-3">
           질문 {questions.length}개 · 과제 제출 {submissions.length}개 · 실시간 · 질문 새싹 1 / 댓글 새싹 2
         </p>
       </section>
@@ -142,8 +153,8 @@ function QuestionCard({ q, onChanged }: { q: TeacherFeedQuestion; onChanged: () 
           </div>
           <p className="text-slate-800 whitespace-pre-wrap">{q.text}</p>
           <div className="flex items-center gap-4 text-sm text-slate-400 mt-2">
-            <span>❤️ {q.heart_count}</span>
-            <span>💬 {q.comments.length}</span>
+            <span className="flex items-center gap-1.5"><HeartIcon size={18} /> {q.heart_count}</span>
+            <span className="flex items-center gap-1.5"><CommentIcon size={18} /> {q.comments.length}</span>
           </div>
         </div>
         <button

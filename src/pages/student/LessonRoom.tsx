@@ -4,6 +4,7 @@ import { fetchLessonFeed, type LessonFeed, type QuestionView } from '../../lib/s
 import { student } from '../../lib/studentApi'
 import { useRealtime } from '../../hooks/useRealtime'
 import Avatar from '../../components/Avatar'
+import { HeartIcon, CommentIcon } from '../../components/icons'
 
 interface Props {
   lesson: Lesson
@@ -25,7 +26,7 @@ export default function LessonRoom({ lesson, me, onBack }: Props) {
   useRealtime(['questions', 'comments', 'hearts', 'submissions', 'lessons'], load)
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-4 pb-24 space-y-4">
+    <div className="max-w-3xl mx-auto px-4 py-4 pb-24 space-y-4">
       <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-800">← 수업 목록</button>
 
       {/* 차시 단계 배너 */}
@@ -71,7 +72,7 @@ export default function LessonRoom({ lesson, me, onBack }: Props) {
 
       {/* 하단 고정: 새 질문 만들기 */}
       <div className="fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-white via-white to-transparent">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <button
             onClick={() => { setShowComposer(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
             className="w-full btn-primary text-base py-3.5 shadow-lg"
@@ -224,10 +225,10 @@ function QuestionCard({ qv, me, onChanged }: { qv: QuestionView; me: StudentSess
           }`}
           title={qv.isMine ? '자기 질문에는 하트를 누를 수 없어요' : '좋은 질문에 하트'}
         >
-          {qv.hearted ? '❤️' : '🤍'} {qv.heartCount}
+          <HeartIcon size={20} filled={qv.hearted} /> {qv.heartCount}
         </button>
         <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-slate-800">
-          💬 {qv.comments.length}
+          <CommentIcon size={20} /> {qv.comments.length}
         </button>
         <span className="ml-auto text-xs text-slate-400">{open ? '접기 ▲' : '댓글 보기 ▼'}</span>
       </div>

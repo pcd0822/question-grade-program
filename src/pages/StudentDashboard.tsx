@@ -6,6 +6,7 @@ import { compressToSquare } from '../lib/imageCompress'
 import { STAGE_LABEL } from '../types'
 import { useRealtime } from '../hooks/useRealtime'
 import Avatar from '../components/Avatar'
+import AppShell, { type NavItem } from '../components/AppShell'
 import LessonRoom from './student/LessonRoom'
 
 interface Props {
@@ -14,13 +15,17 @@ interface Props {
   onProfileChange: () => void
 }
 
+const NAV: NavItem[] = [
+  { key: 'home', label: '홈', icon: '🏠' },
+  { key: 'settings', label: '개인설정', icon: '⚙️' },
+]
+
 export default function StudentDashboard({ student: me, onLogout, onProfileChange }: Props) {
+  const [tab, setTab] = useState('home')
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [seeds, setSeeds] = useState(0)
   const [ranking, setRanking] = useState<RankingRow[]>([])
   const [active, setActive] = useState<Lesson | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(() => {
     fetchActiveLessons().then(setLessons)
@@ -29,51 +34,53 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
   }, [me.id])
 
   useEffect(() => {
+    document.body.style.background = '#f4f7f4'
     load()
   }, [load])
   useRealtime(['lessons', 'seed_log', 'groups', 'students'], load)
 
-  async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    setUploading(true)
-    try {
-      const dataUrl = await compressToSquare(file)
-      await student.setAvatar(dataUrl)
-      onProfileChange()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : '업로드 실패')
-    } finally {
-      setUploading(false)
-    }
-  }
-
+  // 수업 입장 시 전체화면 리딩뷰
   if (active) {
     return <LessonRoom lesson={active} me={me} onBack={() => { setActive(null); load() }} />
   }
 
   return (
-    <div className="max-w-xl mx-auto px-4 py-5">
-      <header className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-3">
-          <button onClick={() => fileRef.current?.click()} className="relative" title="프로필 사진 변경">
-            <Avatar name={me.name} src={me.avatar_url} size={52} />
-            <span className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-[11px] border-2 border-white">
-              {uploading ? '…' : '📷'}
-            </span>
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickAvatar} />
-          <div>
-            <p className="text-sm text-slate-500">{me.student_no}</p>
-            <h1 className="text-xl font-black text-slate-900">{me.name} 님</h1>
-          </div>
-        </div>
-        <button onClick={onLogout} className="btn-secondary">로그아웃</button>
-      </header>
+    <AppShell
+      brandTitle={`${me.name} 님`}
+      brandSubtitle={me.student_no}
+      brandAvatar={<Avatar name={me.name} src={me.avatar_url} size={36} />}
+      nav={NAV}
+      current={tab}
+      onSelect={setTab}
+      onLogout={onLogout}
+      maxWidth="max-w-3xl"
+    >
+      {tab === 'home' ? (
+        <Home me={me} seeds={seeds} ranking={ranking} lessons={lessons} onEnter={setActive} />
+      ) : (
+        <StudentSettings me={me} onProfileChange={onProfileChange} />
+      )}
+    </AppShell>
+  )
+}
 
+function Home({
+  me,
+  seeds,
+  ranking,
+  lessons,
+  onEnter,
+}: {
+  me: StudentSession
+  seeds: number
+  ranking: RankingRow[]
+  lessons: Lesson[]
+  onEnter: (l: Lesson) => void
+}) {
+  return (
+    <div className="space-y-5">
       {/* 내 새싹 */}
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-5 mb-5 flex items-center justify-between">
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-5 flex items-center justify-between">
         <div>
           <p className="text-emerald-100 text-sm font-bold">내 누적 새싹</p>
           <p className="text-4xl font-black mt-0.5">🌱 {seeds}</p>
@@ -83,7 +90,7 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
 
       {/* 모둠 랭킹 */}
       {ranking.length > 0 && (
-        <div className="mb-5">
+        <div>
           <h2 className="font-bold text-slate-700 mb-2">모둠 랭킹</h2>
           <ul className="space-y-1.5">
             {ranking.map((g, i) => {
@@ -103,24 +110,67 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
       )}
 
       {/* 수업 목록 */}
-      <h2 className="font-bold text-slate-700 mb-2">수업 목록</h2>
-      {lessons.length === 0 ? (
-        <p className="text-slate-400 text-sm py-8 text-center card">아직 열린 수업이 없어요.</p>
-      ) : (
-        <ul className="space-y-2">
-          {lessons.map((l) => (
-            <li key={l.id}>
-              <button onClick={() => setActive(l)} className="w-full text-left card hover:border-emerald-300 transition-colors">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {l.period_label && <span className="text-xs text-slate-400">{l.period_label}</span>}
-                  <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">{STAGE_LABEL[l.stage]}</span>
-                </div>
-                <p className="font-bold text-slate-800 mt-1">{l.title}</p>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div>
+        <h2 className="font-bold text-slate-700 mb-2">수업 목록</h2>
+        {lessons.length === 0 ? (
+          <p className="text-slate-400 text-sm py-8 text-center card">아직 열린 수업이 없어요.</p>
+        ) : (
+          <ul className="space-y-2">
+            {lessons.map((l) => (
+              <li key={l.id}>
+                <button onClick={() => onEnter(l)} className="w-full text-left card hover:border-emerald-300 transition-colors">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {l.period_label && <span className="text-xs text-slate-400">{l.period_label}</span>}
+                    <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">{STAGE_LABEL[l.stage]}</span>
+                  </div>
+                  <p className="font-bold text-slate-800 mt-1">{l.title}</p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
+  )
+}
+
+function StudentSettings({ me, onProfileChange }: { me: StudentSession; onProfileChange: () => void }) {
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setUploading(true)
+    try {
+      const dataUrl = await compressToSquare(file)
+      await student.setAvatar(dataUrl)
+      onProfileChange()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '업로드 실패')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2 className="font-bold text-slate-800 mb-4">프로필 사진</h2>
+      <div className="flex items-center gap-4">
+        <button onClick={() => fileRef.current?.click()} className="relative" title="사진 변경">
+          <Avatar name={me.name} src={me.avatar_url} size={72} />
+          <span className="absolute -bottom-1 -right-1 bg-emerald-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs border-2 border-white">
+            {uploading ? '…' : '📷'}
+          </span>
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+        <div>
+          <p className="text-sm text-slate-600 font-medium">{me.name} · {me.student_no}</p>
+          <p className="text-xs text-slate-400">댓글에 이 사진과 이름이 함께 표시됩니다.</p>
+          <button onClick={() => fileRef.current?.click()} className="btn-secondary text-sm mt-2">사진 업로드</button>
+        </div>
+      </div>
+    </section>
   )
 }
