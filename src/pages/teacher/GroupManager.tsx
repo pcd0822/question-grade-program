@@ -216,34 +216,56 @@ function StudentsSection({
       ) : data.students.length === 0 ? (
         <p className="text-slate-400 text-sm py-6 text-center">아직 등록된 학생이 없습니다.</p>
       ) : (
-        <ul className="divide-y divide-slate-100">
-          {data.students.map((s) => (
-            <li key={s.id} className="flex items-center gap-2 py-2">
-              <Avatar name={s.name} src={s.avatar_url} size={36} />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-slate-800 truncate leading-tight">
-                  {s.name} <span className="text-xs text-slate-400">{s.student_no}</span>
-                </p>
-                <p className="text-xs">
-                  <span className="font-mono font-bold tracking-wider text-emerald-600">{s.code}</span>
-                  <span className="text-slate-400"> · 🌱 {s.cumulative_seeds}</span>
-                </p>
-              </div>
-              <select
-                className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white max-w-[90px]"
-                value={s.group_id || ''}
-                onChange={(e) => assign(s, e.target.value)}
-              >
-                <option value="">미배정</option>
-                {data.groups.map((g) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-              <button onClick={() => regenerate(s)} className="text-xs text-slate-400 hover:text-slate-600 shrink-0">재발급</button>
-              <button onClick={() => remove(s)} className="text-xs text-red-400 hover:text-red-600 shrink-0">삭제</button>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto -mx-1">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-xs text-slate-400 border-b border-slate-200">
+                <th className="text-left font-bold px-2 py-2">학생</th>
+                <th className="text-left font-bold px-2 py-2">코드</th>
+                <th className="text-left font-bold px-2 py-2">모둠</th>
+                <th className="text-right font-bold px-2 py-2 whitespace-nowrap">새싹</th>
+                <th className="px-2 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.students.map((s) => (
+                <tr key={s.id} className="border-b border-slate-100">
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-2 min-w-[120px]">
+                      <Avatar name={s.name} src={s.avatar_url} size={32} />
+                      <div className="leading-tight">
+                        <p className="font-medium text-slate-800">{s.name}</p>
+                        <p className="text-xs text-slate-400">{s.student_no}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <span className="font-mono font-bold tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg whitespace-nowrap">
+                      {s.code}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2">
+                    <select
+                      className="text-xs border border-slate-200 rounded-lg px-1.5 py-1.5 bg-white max-w-[110px]"
+                      value={s.group_id || ''}
+                      onChange={(e) => assign(s, e.target.value)}
+                    >
+                      <option value="">미배정</option>
+                      {data.groups.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-2 py-2 text-right font-bold text-slate-700 whitespace-nowrap">🌱 {s.cumulative_seeds}</td>
+                  <td className="px-2 py-2 whitespace-nowrap text-right">
+                    <button onClick={() => regenerate(s)} className="text-xs text-slate-400 hover:text-slate-600 mr-2">재발급</button>
+                    <button onClick={() => remove(s)} className="text-xs text-red-400 hover:text-red-600">삭제</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   )

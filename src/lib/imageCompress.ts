@@ -12,6 +12,9 @@ export function compressToSquare(file: File, size = 256, quality = 0.82): Promis
         canvas.width = size
         canvas.height = size
         const ctx = canvas.getContext('2d')!
+        // 투명 PNG 등이 검게 나오지 않도록 흰 배경을 먼저 채운다.
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, size, size)
         // 중앙 정사각형 크롭
         const side = Math.min(img.width, img.height)
         const sx = (img.width - side) / 2
