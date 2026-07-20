@@ -131,6 +131,16 @@ export interface SeedLog {
   created_at: string
 }
 
+/** 과제 답변 제출 (수업당 학생 1개) */
+export interface Submission {
+  id: string
+  lesson_id: string
+  author_id: string
+  text: string
+  created_at: string
+  updated_at: string
+}
+
 /** 모둠 공간에 배치된 아이템 */
 export interface RoomItem {
   id: string

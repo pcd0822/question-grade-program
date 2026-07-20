@@ -74,3 +74,31 @@ export async function generateUniqueCode() {
   // 극히 드묾: 마지막 시도값 그대로 반환
   return generateCode()
 }
+
+// ── 새싹 지급 규칙 ──────────────────────────────────────────────
+export const SEED = {
+  QUESTION: 1, // 교사가 질문에 지급
+  ANSWER: 2, // 교사가 답변에 지급
+  HEART: 1, // 하트 1개당 보너스
+}
+
+/**
+ * (source, refId) 에 해당하는 새싹 로그를 목표 금액으로 "재조정"한다.
+ * 기존 행을 지우고 amount>0 이면 한 줄로 다시 넣는다(멱등).
+ * 개인/모둠 누적치는 seed_log 합계로 계산하므로 별도 카운터 갱신은 불필요.
+ */
+export async function setSeed({ studentId, lessonId, source, refId, amount, grantedBy = 'teacher' }) {
+  // 기존 동일 (source, ref_id) 로그 제거
+  await admin.from('seed_log').delete().eq('source', source).eq('ref_id', refId)
+  if (amount && amount > 0) {
+    const { error } = await admin.from('seed_log').insert({
+      student_id: studentId,
+      lesson_id: lessonId ?? null,
+      source,
+      ref_id: refId,
+      amount,
+      granted_by: grantedBy,
+    })
+    if (error) throw error
+  }
+}
