@@ -39,6 +39,7 @@ export interface Student {
   code: string // 6자리 개별 로그인 코드
   group_id: string | null
   cumulative_seeds: number // 누적 새싹(랭킹 기준, 감소하지 않음)
+  avatar_url: string | null
   created_at: string
 }
 
@@ -48,7 +49,23 @@ export interface StudentSession {
   student_no: string
   name: string
   group_id: string | null
+  avatar_url: string | null
   code: string // 이후 서버 쓰기 요청 재검증용으로만 로컬 보관
+}
+
+/** 질문에 달리는 실명 댓글 (답변을 대체). 교사 댓글도 포함 */
+export interface Comment {
+  id: string
+  question_id: string
+  author_type: 'student' | 'teacher'
+  student_id: string | null
+  author_name: string
+  author_avatar_url: string | null
+  text: string
+  status: 'normal' | 'approved' | 'rejected'
+  teacher_feedback: string | null
+  created_at: string
+  updated_at: string
 }
 
 /** 수업(차시) */

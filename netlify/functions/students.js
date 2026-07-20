@@ -14,7 +14,7 @@ export async function handler(event) {
       case 'list': {
         const { data, error } = await admin
           .from('students')
-          .select('id, student_no, name, code, group_id, cumulative_seeds, created_at')
+          .select('id, student_no, name, code, group_id, cumulative_seeds, avatar_url, created_at')
           .order('student_no', { ascending: true })
         if (error) throw error
         return json(200, { students: data })
@@ -37,7 +37,7 @@ export async function handler(event) {
         const { data, error } = await admin
           .from('students')
           .insert({ student_no: studentNo, name, code })
-          .select('id, student_no, name, code, group_id, cumulative_seeds, created_at')
+          .select('id, student_no, name, code, group_id, cumulative_seeds, avatar_url, created_at')
           .single()
         if (error) throw error
         return json(200, { student: data })
@@ -51,7 +51,7 @@ export async function handler(event) {
           .from('students')
           .update({ code })
           .eq('id', id)
-          .select('id, student_no, name, code, group_id, cumulative_seeds, created_at')
+          .select('id, student_no, name, code, group_id, cumulative_seeds, avatar_url, created_at')
           .single()
         if (error) throw error
         return json(200, { student: data })

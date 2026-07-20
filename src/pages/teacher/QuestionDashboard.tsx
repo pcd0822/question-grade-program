@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   teacher,
-  type TeacherFeedAnswer,
   type TeacherFeedQuestion,
   type TeacherFeedSubmission,
 } from '../../lib/teacherApi'
-import { STAGE_LABEL, type Lesson } from '../../types'
+import { STAGE_LABEL, type Comment, type Lesson } from '../../types'
 import { useRealtime } from '../../hooks/useRealtime'
+import Avatar from '../../components/Avatar'
+import { seedBurstAt } from '../../lib/confetti'
 
 export default function QuestionDashboard() {
   const [lessons, setLessons] = useState<Lesson[]>([])
-  const [lessonId, setLessonId] = useState<string>('')
+  const [lessonId, setLessonId] = useState('')
   const [questions, setQuestions] = useState<TeacherFeedQuestion[]>([])
   const [submissions, setSubmissions] = useState<TeacherFeedSubmission[]>([])
   const [loading, setLoading] = useState(false)
@@ -38,11 +39,7 @@ export default function QuestionDashboard() {
   useEffect(() => {
     loadFeed()
   }, [loadFeed])
-
-  // 학생 활동(질문/답변/하트/새싹/과제제출)이 생기면 자동 갱신
-  useRealtime(['questions', 'answers', 'hearts', 'seed_log', 'submissions'], loadFeed)
-
-  const lesson = lessons.find((l) => l.id === lessonId)
+  useRealtime(['questions', 'comments', 'hearts', 'seed_log', 'submissions'], loadFeed)
 
   return (
     <div className="space-y-4">
@@ -59,11 +56,9 @@ export default function QuestionDashboard() {
             ))}
           </select>
         </label>
-        {lesson && (
-          <p className="text-xs text-slate-400 mt-2">
-            질문 {questions.length}개 · 과제 제출 {submissions.length}개 · 실시간 반영됨 · 질문 새싹 1개 / 답변 새싹 2개
-          </p>
-        )}
+        <p className="text-xs text-slate-400 mt-2">
+          질문 {questions.length}개 · 과제 제출 {submissions.length}개 · 실시간 · 질문 새싹 1 / 댓글 새싹 2
+        </p>
       </section>
 
       {submissions.length > 0 && <SubmissionsPanel submissions={submissions} />}
@@ -90,11 +85,14 @@ function SubmissionsPanel({ submissions }: { submissions: TeacherFeedSubmission[
       {open && (
         <ul className="mt-3 space-y-2">
           {submissions.map((s) => (
-            <li key={s.id} className="bg-slate-50 rounded-lg p-2.5">
-              <div className="text-xs text-slate-400 mb-1">
-                <span className="font-bold text-slate-600">{s.author?.name || '?'}</span> ({s.author?.student_no})
+            <li key={s.id} className="bg-slate-50 rounded-lg p-2.5 flex gap-2">
+              <Avatar name={s.author?.name || '?'} src={s.author?.avatar_url} size={32} />
+              <div className="min-w-0">
+                <div className="text-xs text-slate-400">
+                  <span className="font-bold text-slate-600">{s.author?.name || '?'}</span> ({s.author?.student_no})
+                </div>
+                <p className="text-slate-700 text-sm whitespace-pre-wrap">{s.text}</p>
               </div>
-              <p className="text-slate-700 text-sm whitespace-pre-wrap">{s.text}</p>
             </li>
           ))}
         </ul>
@@ -105,11 +103,25 @@ function SubmissionsPanel({ submissions }: { submissions: TeacherFeedSubmission[
 
 function QuestionCard({ q, onChanged }: { q: TeacherFeedQuestion; onChanged: () => void }) {
   const [busy, setBusy] = useState(false)
+  const [commentText, setCommentText] = useState('')
 
-  async function toggleSeed() {
+  async function toggleSeed(e: React.MouseEvent) {
     setBusy(true)
     try {
+      if (!q.seed_granted) seedBurstAt(e)
       await teacher.grantQuestionSeed(q.id, !q.seed_granted)
+      await onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addComment() {
+    if (!commentText.trim()) return
+    setBusy(true)
+    try {
+      await teacher.addComment(q.id, commentText.trim())
+      setCommentText('')
       await onChanged()
     } finally {
       setBusy(false)
@@ -118,21 +130,25 @@ function QuestionCard({ q, onChanged }: { q: TeacherFeedQuestion; onChanged: () 
 
   return (
     <section className="card">
+      {/* 헤더 */}
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 mb-1 flex-wrap">
+            <span className="bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">익명</span>
             <span className="font-bold text-slate-600">
               {q.author?.name || '?'} <span className="font-normal">({q.author?.student_no})</span>
             </span>
             {q.author?.group && <span className="bg-slate-100 px-1.5 rounded">{q.author.group}</span>}
-            <span>· ❤️ {q.heart_count}</span>
           </div>
           <p className="text-slate-800 whitespace-pre-wrap">{q.text}</p>
+          <div className="flex items-center gap-4 text-sm text-slate-400 mt-2">
+            <span>❤️ {q.heart_count}</span>
+            <span>💬 {q.comments.length}</span>
+          </div>
         </div>
         <button
           onClick={toggleSeed}
           disabled={busy}
-          title="질문에 새싹 지급"
           className={`shrink-0 touch-target rounded-xl px-3 font-bold text-sm border transition-colors ${
             q.seed_granted
               ? 'bg-emerald-600 text-white border-emerald-600'
@@ -143,70 +159,97 @@ function QuestionCard({ q, onChanged }: { q: TeacherFeedQuestion; onChanged: () 
         </button>
       </div>
 
-      {/* 답변 목록 */}
-      {q.answers.length > 0 && (
-        <div className="mt-3 pl-3 border-l-2 border-slate-100 space-y-2">
-          {q.answers.map((a) => (
-            <AnswerRow key={a.id} a={a} onChanged={onChanged} />
-          ))}
+      {/* 댓글 */}
+      <div className="mt-3 pl-1 border-t border-slate-100 pt-3 space-y-2">
+        {q.comments.map((c) => (
+          <TeacherCommentRow key={c.id} c={c} onChanged={onChanged} />
+        ))}
+
+        {/* 교사 댓글 입력 */}
+        <div className="flex items-center gap-2 pt-1">
+          <Avatar name="선생님" teacher size={32} />
+          <input
+            className="input flex-1"
+            placeholder="선생님 댓글(피드백) 입력…"
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addComment()}
+          />
+          <button onClick={addComment} disabled={busy} className="btn-primary text-sm">
+            등록
+          </button>
         </div>
-      )}
+      </div>
     </section>
   )
 }
 
-function AnswerRow({ a, onChanged }: { a: TeacherFeedAnswer; onChanged: () => void }) {
+function TeacherCommentRow({ c, onChanged }: { c: Comment; onChanged: () => void }) {
   const [busy, setBusy] = useState(false)
+  const isTeacher = c.author_type === 'teacher'
 
-  async function toggleSeed() {
+  async function toggleSeed(e: React.MouseEvent) {
     setBusy(true)
     try {
-      await teacher.grantAnswerSeed(a.id, a.status !== 'approved')
+      if (c.status !== 'approved') seedBurstAt(e)
+      await teacher.grantCommentSeed(c.id, c.status !== 'approved')
       await onChanged()
     } finally {
       setBusy(false)
     }
   }
-
   async function reject() {
-    const feedback = prompt('반려 사유(학생에게 보일 피드백)를 입력하세요.')
-    if (feedback == null || !feedback.trim()) return
+    const fb = prompt('반려 사유(학생에게 보일 피드백)를 입력하세요.')
+    if (fb == null || !fb.trim()) return
     setBusy(true)
     try {
-      await teacher.rejectAnswer(a.id, feedback.trim())
+      await teacher.rejectComment(c.id, fb.trim())
       await onChanged()
     } finally {
       setBusy(false)
     }
+  }
+  async function del() {
+    if (!confirm('이 교사 댓글을 삭제할까요?')) return
+    await teacher.deleteComment(c.id)
+    await onChanged()
   }
 
   return (
-    <div className="bg-slate-50 rounded-lg p-2.5">
-      <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
-        <span className="font-bold text-slate-600">{a.author?.name || '?'}</span>
-        <span>({a.author?.student_no})</span>
-        {a.status === 'approved' && <span className="text-emerald-600 font-bold">새싹 지급됨</span>}
-        {a.status === 'rejected' && <span className="text-red-500 font-bold">반려됨</span>}
-      </div>
-      <p className="text-slate-700 text-sm whitespace-pre-wrap">{a.text}</p>
-      {a.status === 'rejected' && a.teacher_feedback && (
-        <p className="text-xs text-red-500 mt-1">↳ 피드백: {a.teacher_feedback}</p>
-      )}
-      <div className="flex gap-2 mt-2 justify-end">
-        <button
-          onClick={toggleSeed}
-          disabled={busy}
-          className={`touch-target rounded-lg px-3 text-sm font-bold border transition-colors ${
-            a.status === 'approved'
-              ? 'bg-emerald-600 text-white border-emerald-600'
-              : 'bg-white text-emerald-600 border-emerald-300 hover:bg-emerald-50'
-          }`}
-        >
-          🌱🌱 {a.status === 'approved' ? '지급 취소' : '새싹 2개'}
-        </button>
-        <button onClick={reject} disabled={busy} className="touch-target rounded-lg px-3 text-sm font-bold bg-white text-red-500 border border-red-200 hover:bg-red-50">
-          반려
-        </button>
+    <div className={`flex gap-2 rounded-lg p-2 ${isTeacher ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+      <Avatar name={c.author_name} src={c.author_avatar_url} teacher={isTeacher} size={32} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-xs mb-0.5">
+          <span className="font-bold text-slate-700">{c.author_name}</span>
+          {isTeacher && <span className="text-emerald-600 font-bold">선생님</span>}
+          {c.status === 'approved' && <span className="text-emerald-600 font-bold">🌱 새싹 지급됨</span>}
+          {c.status === 'rejected' && <span className="text-red-500 font-bold">반려됨</span>}
+        </div>
+        <p className="text-slate-700 text-sm whitespace-pre-wrap">{c.text}</p>
+        {c.status === 'rejected' && c.teacher_feedback && (
+          <p className="text-xs text-red-500 mt-1">↳ 피드백: {c.teacher_feedback}</p>
+        )}
+        {!isTeacher && (
+          <div className="flex gap-2 mt-1.5">
+            <button
+              onClick={toggleSeed}
+              disabled={busy}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold border ${
+                c.status === 'approved'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-emerald-600 border-emerald-300 hover:bg-emerald-50'
+              }`}
+            >
+              🌱🌱 {c.status === 'approved' ? '지급 취소' : '새싹 2개'}
+            </button>
+            <button onClick={reject} disabled={busy} className="rounded-lg px-2.5 py-1 text-xs font-bold bg-white text-red-500 border border-red-200 hover:bg-red-50">
+              반려
+            </button>
+          </div>
+        )}
+        {isTeacher && (
+          <button onClick={del} className="text-xs text-slate-400 hover:text-red-500 mt-1">삭제</button>
+        )}
       </div>
     </div>
   )

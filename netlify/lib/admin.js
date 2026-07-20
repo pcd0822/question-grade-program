@@ -44,7 +44,7 @@ export async function verifyStudent(studentNo, code) {
   if (!studentNo || !code) return null
   const { data, error } = await admin
     .from('students')
-    .select('id, student_no, name, group_id, code')
+    .select('id, student_no, name, group_id, code, avatar_url')
     .eq('student_no', String(studentNo).trim())
     .maybeSingle()
   if (error || !data) return null
@@ -80,6 +80,14 @@ export const SEED = {
   QUESTION: 1, // 교사가 질문에 지급
   ANSWER: 2, // 교사가 답변에 지급
   HEART: 1, // 하트 1개당 보너스
+}
+
+/** 학생별 누적 새싹 합계 맵 (seed_log 가 단일 진실 소스) */
+export async function sumSeedByStudent() {
+  const { data } = await admin.from('seed_log').select('student_id, amount')
+  const map = new Map()
+  for (const r of data || []) map.set(r.student_id, (map.get(r.student_id) || 0) + r.amount)
+  return map
 }
 
 /**

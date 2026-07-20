@@ -1,6 +1,6 @@
-// 학생 화면용 읽기 (anon Supabase). 이름 등 개인정보는 담기지 않아 익명성이 유지된다.
+// 학생 화면용 읽기 (anon Supabase). 질문은 익명, 댓글은 실명(비정규화된 이름/아바타).
 import { supabase } from './supabase'
-import type { Answer, Lesson, Question, Submission } from '../types'
+import type { Comment, Lesson, Question, Submission } from '../types'
 
 /** 활성 수업 목록 */
 export async function fetchActiveLessons(): Promise<Lesson[]> {
@@ -21,10 +21,9 @@ export async function fetchMySeeds(studentId: string): Promise<number> {
 export interface QuestionView {
   question: Question
   heartCount: number
-  hearted: boolean // 내가 하트를 눌렀는지
-  isMine: boolean // 내가 쓴 질문인지
-  myAnswer: Answer | null // 이 질문에 대한 내 답변
-  answers: Answer[] // 모든 답변(익명)
+  hearted: boolean
+  isMine: boolean
+  comments: Comment[]
 }
 
 export interface LessonFeed {
@@ -32,7 +31,6 @@ export interface LessonFeed {
   mySubmission: Submission | null
 }
 
-/** 수업 상세 피드 (질문·답변·하트·내 제출) */
 export async function fetchLessonFeed(lessonId: string, myId: string): Promise<LessonFeed> {
   const { data: qData } = await supabase
     .from('questions')
@@ -42,14 +40,14 @@ export async function fetchLessonFeed(lessonId: string, myId: string): Promise<L
   const questions = (qData as Question[]) || []
   const qIds = questions.map((q) => q.id)
 
-  let answers: Answer[] = []
+  let comments: Comment[] = []
   let hearts: { question_id: string; student_id: string }[] = []
   if (qIds.length) {
-    const [{ data: aData }, { data: hData }] = await Promise.all([
-      supabase.from('answers').select('*').in('question_id', qIds),
+    const [{ data: cData }, { data: hData }] = await Promise.all([
+      supabase.from('comments').select('*').in('question_id', qIds).order('created_at'),
       supabase.from('hearts').select('question_id, student_id').in('question_id', qIds),
     ])
-    answers = (aData as Answer[]) || []
+    comments = (cData as Comment[]) || []
     hearts = (hData as { question_id: string; student_id: string }[]) || []
   }
 
@@ -61,15 +59,13 @@ export async function fetchLessonFeed(lessonId: string, myId: string): Promise<L
     .maybeSingle()
 
   const views: QuestionView[] = questions.map((q) => {
-    const qAnswers = answers.filter((a) => a.question_id === q.id)
     const qHearts = hearts.filter((h) => h.question_id === q.id)
     return {
       question: q,
       heartCount: qHearts.length,
       hearted: qHearts.some((h) => h.student_id === myId),
       isMine: q.author_id === myId,
-      myAnswer: qAnswers.find((a) => a.author_id === myId) || null,
-      answers: qAnswers,
+      comments: comments.filter((c) => c.question_id === q.id),
     }
   })
 

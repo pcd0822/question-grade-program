@@ -12,6 +12,7 @@ export async function handler(event) {
       student_no: student.student_no,
       name: student.name,
       group_id: student.group_id,
+      avatar_url: student.avatar_url || null,
     },
   })
 }

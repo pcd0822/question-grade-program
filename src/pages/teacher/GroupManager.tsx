@@ -1,0 +1,250 @@
+import { useCallback, useEffect, useState } from 'react'
+import { teacher, type GroupsOverview } from '../../lib/teacherApi'
+import type { Student } from '../../types'
+import { useRealtime } from '../../hooks/useRealtime'
+import Avatar from '../../components/Avatar'
+
+const EMPTY: GroupsOverview = { students: [], groups: [], stats: { classTotal: 0, groupAvg: 0, studentAvg: 0 } }
+
+export default function GroupManager() {
+  const [data, setData] = useState<GroupsOverview>(EMPTY)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      setData(await teacher.groupsOverview())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '불러오기 실패')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+  useRealtime(['seed_log', 'students', 'groups'], load)
+
+  const rankedGroups = [...data.groups].sort((a, b) => b.cumulative_seeds - a.cumulative_seeds)
+
+  return (
+    <div className="space-y-5">
+      {/* 새싹 통계 */}
+      <div className="grid grid-cols-3 gap-2">
+        <StatCard label="학급 전체" value={data.stats.classTotal} />
+        <StatCard label="모둠 평균" value={data.stats.groupAvg} />
+        <StatCard label="1인 평균" value={data.stats.studentAvg} />
+      </div>
+
+      {error && <p className="text-red-500 text-sm">{error}</p>}
+
+      <GroupsSection data={data} rankedGroups={rankedGroups} onChanged={load} />
+      <StudentsSection data={data} onChanged={load} loading={loading} />
+    </div>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-3 text-center">
+      <p className="text-emerald-100 text-xs font-bold">{label}</p>
+      <p className="text-2xl font-black mt-0.5">🌱 {value}</p>
+    </div>
+  )
+}
+
+function GroupsSection({
+  data,
+  rankedGroups,
+  onChanged,
+}: {
+  data: GroupsOverview
+  rankedGroups: GroupsOverview['groups']
+  onChanged: () => void
+}) {
+  const [newName, setNewName] = useState('')
+
+  async function create() {
+    if (!newName.trim()) return
+    await teacher.createGroup(newName.trim())
+    setNewName('')
+    onChanged()
+  }
+  async function rename(id: string, cur: string) {
+    const name = prompt('모둠 이름 변경', cur)
+    if (name == null || !name.trim()) return
+    await teacher.renameGroup(id, name.trim())
+    onChanged()
+  }
+  async function remove(id: string, name: string) {
+    if (!confirm(`'${name}' 모둠을 삭제할까요?\n소속 학생은 미배정 상태가 됩니다.`)) return
+    await teacher.deleteGroup(id)
+    onChanged()
+  }
+
+  const rankOf = new Map(rankedGroups.map((g, i) => [g.id, i + 1]))
+  const medal = (r: number) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `${r}위`)
+
+  return (
+    <section className="card">
+      <h2 className="font-bold text-slate-800 mb-3">모둠 · 랭킹</h2>
+      <div className="flex gap-2 mb-3">
+        <input className="input flex-1" placeholder="새 모둠 이름" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
+        <button onClick={create} className="btn-primary">모둠 추가</button>
+      </div>
+
+      {data.groups.length === 0 ? (
+        <p className="text-slate-400 text-sm py-3 text-center">모둠을 추가하고 아래에서 학생을 배정하세요.</p>
+      ) : (
+        <ul className="space-y-2">
+          {data.groups.map((g) => (
+            <li key={g.id} className="border border-slate-200 rounded-xl p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{medal(rankOf.get(g.id) || 0)}</span>
+                <span className="font-bold text-slate-800 flex-1">{g.name}</span>
+                <span className="text-emerald-600 font-black">🌱 {g.cumulative_seeds}</span>
+              </div>
+              <div className="flex items-center gap-1 mt-2 flex-wrap">
+                {g.members.length === 0 ? (
+                  <span className="text-xs text-slate-400">아직 배정된 학생이 없습니다</span>
+                ) : (
+                  g.members.map((m) => (
+                    <span key={m.id} title={`${m.name} · 🌱${m.cumulative_seeds}`}>
+                      <Avatar name={m.name} src={m.avatar_url} size={28} />
+                    </span>
+                  ))
+                )}
+              </div>
+              <div className="flex justify-between items-center mt-2">
+                <span className="text-xs text-slate-400">보유 새싹(지갑) 🌱 {g.wallet} · {g.members.length}명</span>
+                <div className="flex gap-2">
+                  <button onClick={() => rename(g.id, g.name)} className="text-xs text-sky-600">이름변경</button>
+                  <button onClick={() => remove(g.id, g.name)} className="text-xs text-red-400">삭제</button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function StudentsSection({
+  data,
+  onChanged,
+  loading,
+}: {
+  data: GroupsOverview
+  onChanged: () => void
+  loading: boolean
+}) {
+  const [studentNo, setStudentNo] = useState('')
+  const [name, setName] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState('')
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault()
+    if (!studentNo.trim() || !name.trim()) return
+    setAdding(true)
+    setError('')
+    try {
+      await teacher.addStudent(studentNo.trim(), name.trim())
+      setStudentNo('')
+      setName('')
+      onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '등록 실패')
+    } finally {
+      setAdding(false)
+    }
+  }
+  async function regenerate(s: Student) {
+    if (!confirm(`${s.name}(${s.student_no}) 코드를 재발급할까요? 기존 코드는 사용 불가해집니다.`)) return
+    await teacher.regenerateCode(s.id)
+    onChanged()
+  }
+  async function remove(s: Student) {
+    if (!confirm(`${s.name}(${s.student_no}) 학생을 삭제할까요?\n질문·댓글·새싹 기록도 함께 삭제됩니다. 되돌릴 수 없습니다.`)) return
+    await teacher.deleteStudent(s.id)
+    onChanged()
+  }
+  async function assign(s: Student, groupId: string) {
+    await teacher.assign(s.id, groupId || null)
+    onChanged()
+  }
+  function exportCsv() {
+    const rows = [
+      ['학번', '이름', '코드', '모둠', '누적새싹'],
+      ...data.students.map((s) => [
+        s.student_no,
+        s.name,
+        s.code,
+        data.groups.find((g) => g.id === s.group_id)?.name || '',
+        String(s.cumulative_seeds),
+      ]),
+    ]
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '학생명단_코드_새싹.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <section className="card">
+      <h2 className="font-bold text-slate-800 mb-3">학생 등록</h2>
+      <form onSubmit={add} className="flex flex-col sm:flex-row gap-2 mb-4">
+        <input className="input sm:w-36" inputMode="numeric" placeholder="학번" value={studentNo} onChange={(e) => setStudentNo(e.target.value)} />
+        <input className="input flex-1" placeholder="이름" value={name} onChange={(e) => setName(e.target.value)} />
+        <button type="submit" disabled={adding} className="btn-primary">{adding ? '등록 중…' : '등록'}</button>
+      </form>
+      {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
+
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-bold text-slate-700 text-sm">명단 ({data.students.length})</h3>
+        <button onClick={exportCsv} disabled={!data.students.length} className="btn-secondary text-sm">CSV 내보내기</button>
+      </div>
+
+      {loading ? (
+        <p className="text-slate-400 text-sm py-6 text-center">불러오는 중…</p>
+      ) : data.students.length === 0 ? (
+        <p className="text-slate-400 text-sm py-6 text-center">아직 등록된 학생이 없습니다.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {data.students.map((s) => (
+            <li key={s.id} className="flex items-center gap-2 py-2">
+              <Avatar name={s.name} src={s.avatar_url} size={36} />
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-slate-800 truncate leading-tight">
+                  {s.name} <span className="text-xs text-slate-400">{s.student_no}</span>
+                </p>
+                <p className="text-xs">
+                  <span className="font-mono font-bold tracking-wider text-emerald-600">{s.code}</span>
+                  <span className="text-slate-400"> · 🌱 {s.cumulative_seeds}</span>
+                </p>
+              </div>
+              <select
+                className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white max-w-[90px]"
+                value={s.group_id || ''}
+                onChange={(e) => assign(s, e.target.value)}
+              >
+                <option value="">미배정</option>
+                {data.groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              <button onClick={() => regenerate(s)} className="text-xs text-slate-400 hover:text-slate-600 shrink-0">재발급</button>
+              <button onClick={() => remove(s)} className="text-xs text-red-400 hover:text-red-600 shrink-0">삭제</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}

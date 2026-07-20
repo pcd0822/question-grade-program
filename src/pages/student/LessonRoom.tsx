@@ -1,34 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
-import { STAGE_LABEL, type Lesson } from '../../types'
+import { STAGE_LABEL, type Comment, type Lesson, type StudentSession } from '../../types'
 import { fetchLessonFeed, type LessonFeed, type QuestionView } from '../../lib/studentData'
 import { student } from '../../lib/studentApi'
 import { useRealtime } from '../../hooks/useRealtime'
+import Avatar from '../../components/Avatar'
 
 interface Props {
   lesson: Lesson
-  myId: string
+  me: StudentSession
   onBack: () => void
 }
 
-export default function LessonRoom({ lesson, myId, onBack }: Props) {
+export default function LessonRoom({ lesson, me, onBack }: Props) {
   const [feed, setFeed] = useState<LessonFeed>({ questions: [], mySubmission: null })
+  const [showComposer, setShowComposer] = useState(false)
 
   const load = useCallback(() => {
-    fetchLessonFeed(lesson.id, myId).then(setFeed)
-  }, [lesson.id, myId])
+    fetchLessonFeed(lesson.id, me.id).then(setFeed)
+  }, [lesson.id, me.id])
 
   useEffect(() => {
     load()
   }, [load])
-  useRealtime(['questions', 'answers', 'hearts', 'submissions', 'lessons'], load)
+  useRealtime(['questions', 'comments', 'hearts', 'submissions', 'lessons'], load)
 
   return (
-    <div className="max-w-xl mx-auto px-4 py-4 space-y-4">
-      <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-800">
-        ← 수업 목록
-      </button>
+    <div className="max-w-2xl mx-auto px-4 py-4 pb-24 space-y-4">
+      <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-800">← 수업 목록</button>
 
-      {/* 이번 차시 질문 단계 안내 */}
+      {/* 차시 단계 배너 */}
       <div className="rounded-2xl bg-emerald-600 text-white p-4">
         <p className="text-emerald-100 text-xs font-bold">
           {lesson.period_label ? `${lesson.period_label} · ` : ''}이번 차시 질문 단계
@@ -39,16 +39,25 @@ export default function LessonRoom({ lesson, myId, onBack }: Props) {
 
       <h1 className="text-xl font-black text-slate-900">{lesson.title}</h1>
 
-      {/* 제시문 */}
       {lesson.content && <Collapsible title="수업 내용 / 제시문" defaultOpen>{lesson.content}</Collapsible>}
-
-      {/* 과제 + 제출 */}
       {lesson.task && <TaskBox lesson={lesson} feed={feed} onChanged={load} />}
 
-      {/* 질문 만들기 */}
-      <NewQuestion lesson={lesson} onChanged={load} />
+      {/* 상단: 새 질문 만들기 */}
+      <button
+        onClick={() => setShowComposer((v) => !v)}
+        className="w-full btn-primary text-base py-3.5 shadow-md"
+      >
+        ✏️ 새 질문 만들기
+      </button>
+      {showComposer && (
+        <NewQuestion
+          lesson={lesson}
+          onDone={() => { setShowComposer(false); load() }}
+          onCancel={() => setShowComposer(false)}
+        />
+      )}
 
-      {/* 질문 목록 (익명) */}
+      {/* 질문 카드뷰 목록 */}
       <div className="space-y-3">
         <h2 className="font-bold text-slate-700">
           우리 반 질문 <span className="text-slate-400 font-normal">({feed.questions.length})</span>
@@ -56,8 +65,20 @@ export default function LessonRoom({ lesson, myId, onBack }: Props) {
         {feed.questions.length === 0 ? (
           <p className="text-slate-400 text-sm py-6 text-center card">아직 질문이 없어요. 첫 질문을 만들어보세요!</p>
         ) : (
-          feed.questions.map((qv) => <QuestionCard key={qv.question.id} qv={qv} onChanged={load} />)
+          feed.questions.map((qv) => <QuestionCard key={qv.question.id} qv={qv} me={me} onChanged={load} />)
         )}
+      </div>
+
+      {/* 하단 고정: 새 질문 만들기 */}
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-white via-white to-transparent">
+        <div className="max-w-2xl mx-auto">
+          <button
+            onClick={() => { setShowComposer(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+            className="w-full btn-primary text-base py-3.5 shadow-lg"
+          >
+            ✏️ 새 질문 만들기
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -101,23 +122,18 @@ function TaskBox({ lesson, feed, onChanged }: { lesson: Lesson; feed: LessonFeed
     <section className="card">
       <h2 className="font-bold text-slate-800 mb-1">📝 과제</h2>
       <p className="text-slate-700 whitespace-pre-wrap mb-3">{lesson.task}</p>
-
       {sub && !editing ? (
         <div className="bg-emerald-50 rounded-lg p-3">
           <p className="text-xs text-emerald-700 font-bold mb-1">내 제출</p>
           <p className="text-slate-700 text-sm whitespace-pre-wrap">{sub.text}</p>
-          <button onClick={() => { setText(sub.text); setEditing(true) }} className="text-xs text-emerald-600 mt-2 hover:underline">
-            수정
-          </button>
+          <button onClick={() => { setText(sub.text); setEditing(true) }} className="text-xs text-emerald-600 mt-2 hover:underline">수정</button>
         </div>
       ) : (
         <div className="space-y-2">
           <textarea className="input py-2" rows={3} placeholder="과제 답변을 작성하세요" value={text} onChange={(e) => setText(e.target.value)} />
           <div className="flex justify-end gap-2">
             {editing && <button onClick={() => setEditing(false)} className="btn-secondary text-sm">취소</button>}
-            <button onClick={submit} disabled={busy} className="btn-primary text-sm">
-              {busy ? '제출 중…' : sub ? '수정 제출' : '제출'}
-            </button>
+            <button onClick={submit} disabled={busy} className="btn-primary text-sm">{busy ? '제출 중…' : sub ? '수정 제출' : '제출'}</button>
           </div>
         </div>
       )}
@@ -125,44 +141,41 @@ function TaskBox({ lesson, feed, onChanged }: { lesson: Lesson; feed: LessonFeed
   )
 }
 
-function NewQuestion({ lesson, onChanged }: { lesson: Lesson; onChanged: () => void }) {
+function NewQuestion({ lesson, onDone, onCancel }: { lesson: Lesson; onDone: () => void; onCancel: () => void }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-
   async function create() {
     if (!text.trim()) return
     setBusy(true)
     try {
       await student.createQuestion(lesson.id, text.trim())
-      setText('')
-      onChanged()
+      onDone()
     } catch (e) {
       alert(e instanceof Error ? e.message : '등록 실패')
     } finally {
       setBusy(false)
     }
   }
-
   return (
     <section className="card border-emerald-200">
       <h2 className="font-bold text-slate-800 mb-2">✏️ {STAGE_LABEL[lesson.stage]} 만들기</h2>
-      <textarea className="input py-2" rows={2} placeholder={`${STAGE_LABEL[lesson.stage]}을(를) 입력하세요`} value={text} onChange={(e) => setText(e.target.value)} />
-      <div className="flex justify-end mt-2">
-        <button onClick={create} disabled={busy} className="btn-primary text-sm">
-          {busy ? '등록 중…' : '질문 등록'}
-        </button>
+      <textarea className="input py-2" rows={3} placeholder={`${STAGE_LABEL[lesson.stage]}을(를) 입력하세요 (익명으로 등록돼요)`} value={text} onChange={(e) => setText(e.target.value)} autoFocus />
+      <div className="flex justify-end gap-2 mt-2">
+        <button onClick={onCancel} className="btn-secondary text-sm">취소</button>
+        <button onClick={create} disabled={busy} className="btn-primary text-sm">{busy ? '등록 중…' : '질문 등록'}</button>
       </div>
     </section>
   )
 }
 
-function QuestionCard({ qv, onChanged }: { qv: QuestionView; onChanged: () => void }) {
+function QuestionCard({ qv, me, onChanged }: { qv: QuestionView; me: StudentSession; onChanged: () => void }) {
   const { question: q } = qv
+  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [answerText, setAnswerText] = useState('')
-  const [editing, setEditing] = useState(false)
+  const [commentText, setCommentText] = useState('')
 
-  async function toggleHeart() {
+  async function toggleHeart(e: React.MouseEvent) {
+    e.stopPropagation()
     if (qv.isMine || busy) return
     setBusy(true)
     try {
@@ -175,96 +188,130 @@ function QuestionCard({ qv, onChanged }: { qv: QuestionView; onChanged: () => vo
     }
   }
 
-  async function sendAnswer() {
-    if (!answerText.trim()) return
+  async function addComment() {
+    if (!commentText.trim()) return
     setBusy(true)
     try {
-      if (qv.myAnswer && editing) {
-        await student.updateAnswer(qv.myAnswer.id, answerText.trim())
-      } else {
-        await student.createAnswer(q.id, answerText.trim())
-      }
-      setAnswerText('')
-      setEditing(false)
+      await student.createComment(q.id, commentText.trim())
+      setCommentText('')
       onChanged()
     } catch (e) {
-      alert(e instanceof Error ? e.message : '답변 실패')
+      alert(e instanceof Error ? e.message : '댓글 실패')
     } finally {
       setBusy(false)
     }
   }
 
-  const otherAnswers = qv.answers.filter((a) => a.id !== qv.myAnswer?.id)
-
   return (
     <section className="card">
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0">
+      {/* 카드뷰 (접힘 상태) */}
+      <button onClick={() => setOpen((v) => !v)} className="w-full text-left">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full">익명</span>
           {qv.isMine && <span className="text-xs bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">내 질문</span>}
-          {qv.isMine && q.seed_granted && <span className="text-xs ml-1">🌱 새싹 받음</span>}
-          <p className="text-slate-800 whitespace-pre-wrap mt-1">{q.text}</p>
+          {qv.isMine && q.seed_granted && <span className="text-xs">🌱 새싹 받음</span>}
         </div>
+        <p className="text-slate-800 whitespace-pre-wrap">{q.text}</p>
+      </button>
+
+      {/* 액션바 (하트 · 댓글 수) */}
+      <div className="flex items-center gap-5 mt-3 text-sm">
         <button
           onClick={toggleHeart}
-          disabled={qv.isMine || busy}
-          className={`shrink-0 touch-target rounded-xl px-3 text-sm font-bold border transition-colors ${
-            qv.isMine
-              ? 'border-slate-200 text-slate-300'
-              : qv.hearted
-                ? 'bg-rose-500 text-white border-rose-500'
-                : 'bg-white text-rose-500 border-rose-200 hover:bg-rose-50'
+          disabled={qv.isMine}
+          className={`flex items-center gap-1.5 font-bold ${
+            qv.isMine ? 'text-slate-300' : qv.hearted ? 'text-rose-500' : 'text-slate-500 hover:text-rose-500'
           }`}
           title={qv.isMine ? '자기 질문에는 하트를 누를 수 없어요' : '좋은 질문에 하트'}
         >
-          ❤️ {qv.heartCount}
+          {qv.hearted ? '❤️' : '🤍'} {qv.heartCount}
         </button>
+        <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 font-bold text-slate-500 hover:text-slate-800">
+          💬 {qv.comments.length}
+        </button>
+        <span className="ml-auto text-xs text-slate-400">{open ? '접기 ▲' : '댓글 보기 ▼'}</span>
       </div>
 
-      {/* 내 답변 영역 */}
-      {!qv.isMine && (
-        <div className="mt-3">
-          {qv.myAnswer && !editing ? (
-            <div className={`rounded-lg p-2.5 ${qv.myAnswer.status === 'rejected' ? 'bg-red-50' : 'bg-slate-50'}`}>
-              <p className="text-xs font-bold mb-1 flex items-center gap-2">
-                <span className="text-slate-500">내 답변</span>
-                {qv.myAnswer.status === 'approved' && <span className="text-emerald-600">🌱 새싹 받음</span>}
-                {qv.myAnswer.status === 'rejected' && <span className="text-red-500">반려됨</span>}
-              </p>
-              <p className="text-slate-700 text-sm whitespace-pre-wrap">{qv.myAnswer.text}</p>
-              {qv.myAnswer.status === 'rejected' && (
-                <>
-                  {qv.myAnswer.teacher_feedback && (
-                    <p className="text-xs text-red-500 mt-1">↳ 선생님 피드백: {qv.myAnswer.teacher_feedback}</p>
-                  )}
-                  <button onClick={() => { setAnswerText(qv.myAnswer!.text); setEditing(true) }} className="text-xs text-emerald-600 mt-2 hover:underline">
-                    답변 수정하기
-                  </button>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <textarea className="input py-2" rows={2} placeholder="이 질문에 답변하기" value={answerText} onChange={(e) => setAnswerText(e.target.value)} />
-              <div className="flex justify-end gap-2">
-                {editing && <button onClick={() => setEditing(false)} className="btn-secondary text-sm">취소</button>}
-                <button onClick={sendAnswer} disabled={busy} className="btn-primary text-sm">
-                  {editing ? '수정 제출' : '답변 등록'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 다른 답변들 (익명) */}
-      {otherAnswers.length > 0 && (
-        <div className="mt-3 pl-3 border-l-2 border-slate-100 space-y-1.5">
-          <p className="text-xs text-slate-400">다른 친구들의 답변 {otherAnswers.length}개</p>
-          {otherAnswers.map((a) => (
-            <p key={a.id} className="text-sm text-slate-600 whitespace-pre-wrap">· {a.text}</p>
+      {/* 펼침: 댓글 */}
+      {open && (
+        <div className="mt-3 border-t border-slate-100 pt-3 space-y-2">
+          {qv.comments.length === 0 && <p className="text-xs text-slate-400 text-center py-1">첫 댓글을 남겨보세요.</p>}
+          {qv.comments.map((c) => (
+            <CommentRow key={c.id} c={c} mine={c.student_id === me.id} onChanged={onChanged} />
           ))}
+
+          {/* 댓글 입력 (실명) */}
+          <div className="flex items-center gap-2 pt-1">
+            <Avatar name={me.name} src={me.avatar_url} size={32} />
+            <input
+              className="input flex-1"
+              placeholder="댓글 달기…(실명)"
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addComment()}
+            />
+            <button onClick={addComment} disabled={busy} className="btn-primary text-sm">등록</button>
+          </div>
         </div>
       )}
     </section>
+  )
+}
+
+function CommentRow({ c, mine, onChanged }: { c: Comment; mine: boolean; onChanged: () => void }) {
+  const isTeacher = c.author_type === 'teacher'
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(c.text)
+  const [busy, setBusy] = useState(false)
+
+  async function save() {
+    if (!text.trim()) return
+    setBusy(true)
+    try {
+      await student.updateComment(c.id, text.trim())
+      setEditing(false)
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function del() {
+    if (!confirm('댓글을 삭제할까요?')) return
+    await student.deleteComment(c.id)
+    onChanged()
+  }
+
+  return (
+    <div className={`flex gap-2 rounded-lg p-2 ${isTeacher ? 'bg-emerald-50' : 'bg-slate-50'}`}>
+      <Avatar name={c.author_name} src={c.author_avatar_url} teacher={isTeacher} size={32} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-xs mb-0.5">
+          <span className="font-bold text-slate-700">{c.author_name}</span>
+          {isTeacher && <span className="text-emerald-600 font-bold">선생님</span>}
+          {c.status === 'approved' && <span className="text-emerald-600 font-bold">🌱 새싹 받음</span>}
+          {c.status === 'rejected' && <span className="text-red-500 font-bold">반려됨</span>}
+        </div>
+        {editing ? (
+          <div className="space-y-1">
+            <textarea className="input py-1.5" rows={2} value={text} onChange={(e) => setText(e.target.value)} />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditing(false)} className="text-xs text-slate-400">취소</button>
+              <button onClick={save} disabled={busy} className="text-xs text-emerald-600 font-bold">저장</button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-slate-700 text-sm whitespace-pre-wrap">{c.text}</p>
+        )}
+        {c.status === 'rejected' && c.teacher_feedback && !editing && (
+          <p className="text-xs text-red-500 mt-1">↳ 선생님 피드백: {c.teacher_feedback}</p>
+        )}
+        {mine && !editing && (
+          <div className="flex gap-2 mt-1">
+            <button onClick={() => { setText(c.text); setEditing(true) }} className="text-xs text-slate-400 hover:text-slate-600">수정</button>
+            <button onClick={del} className="text-xs text-red-400 hover:text-red-600">삭제</button>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
