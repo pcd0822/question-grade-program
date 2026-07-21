@@ -89,6 +89,11 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 5. `migrations/005_anonymity.sql` — **익명성 강화.** students.qid(공개용 식별자) + questions.author_qid 추가·백필, **anon 에게서 questions.author_id SELECT 권한 회수**, 죽은 cumulative_seeds 컬럼 2개 제거.
 6. `migrations/006_concurrency.sql` — **동시 접속(30명) 안정화.** 유니크 제약 3종 + DB 함수 `seed_totals` / `set_seed` / `toggle_heart` / `room_buy` / `room_sell`.
 7. `migrations/007_drop_answers.sql` — (선택) 죽은 answers 테이블·publication 정리.
+8. `migrations/008_fix_column_grants.sql` — **005·007 실패분 수정.** 반드시 실행해야 익명성이 실제로 적용된다.
+
+⚠ **컬럼 단위 REVOKE 는 테이블 단위 GRANT 를 깎아내지 못한다.** 005 의 `revoke select (author_id) ... from anon` 은 anon 이 테이블 전체 SELECT 권한을 갖고 있어 **조용히 무시됐다**(실행은 성공하는데 효과가 없음). 컬럼을 가리려면 008 처럼 **테이블 SELECT 를 회수한 뒤 필요한 컬럼만 다시 grant** 해야 한다. 앞으로 `questions` 에 컬럼을 추가하면 anon 에게 보여줄지 판단해 008 의 grant 목록에 직접 넣어야 한다(자동으로 보이지 않는다).
+
+⚠ **배포 순서**: 008 을 적용하면 `questions` 를 `select('*')` 로 읽는 코드가 즉시 실패한다. **새 프론트 코드를 먼저 배포한 뒤** 008 을 실행할 것.
 
 **005·006 은 안 돌려도 앱이 죽지는 않는다** — 서버 코드가 컬럼/함수 부재를 감지해 예전 방식으로 자동 폴백한다(`isMissingFunction`). 다만 폴백 경로는 **경합에 취약하고 익명성 보강도 적용되지 않으므로**, 수업 전에 반드시 실행할 것.
 
