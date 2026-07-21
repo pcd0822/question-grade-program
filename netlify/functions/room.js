@@ -59,6 +59,20 @@ function clampPct(value, fallback) {
   return Math.round(Math.min(100, Math.max(0, n)) * 100) / 100
 }
 
+/** 아이템 배율을 0.5~2.5 로 정리 (DB check 제약과 같은 범위) */
+function clampScale(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return Number(fallback) || 1
+  return Math.round(Math.min(2.5, Math.max(0.5, n)) * 100) / 100
+}
+
+/** 회전 각도를 0 이상 360 미만으로 정리 (DB check 제약과 같은 범위) */
+function normalizeAngle(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return Number(fallback) || 0
+  return Math.round((((n % 360) + 360) % 360) * 100) / 100
+}
+
 /**
  * 009 미적용 환경용 구매 폴백. 실패 사유 문자열을 반환하고, 성공하면 null.
  * 경합에 취약하므로(동시 구매 시 차감 유실) 마이그레이션을 꼭 실행할 것.
@@ -138,7 +152,11 @@ export async function handler(event) {
         // 자유 배치: 공간 내 비율(0~100). 겹쳐 놓는 것도 허용한다.
         const x = clampPct(body.x, item.x)
         const y = clampPct(body.y, item.y)
-        const { error: mvErr } = await admin.from('room_items').update({ x, y }).eq('id', item.id)
+        const patch = { x, y }
+        // 크기·회전(011). 값을 안 보내면 건드리지 않는다.
+        if (body.scale !== undefined) patch.scale = clampScale(body.scale, item.scale)
+        if (body.rotation !== undefined) patch.rotation = normalizeAngle(body.rotation, item.rotation)
+        const { error: mvErr } = await admin.from('room_items').update(patch).eq('id', item.id)
         if (mvErr) {
           // 22P02 = 좌표 컬럼이 아직 integer (마이그레이션 009/010 미적용)
           if (mvErr.code === '22P02')

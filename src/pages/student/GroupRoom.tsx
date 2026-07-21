@@ -45,6 +45,18 @@ function depthScale(y: number) {
   return 0.55 + floorDepth(y) * 0.7
 }
 
+/** 저장된 배율(011 이전 데이터면 1) */
+function scaleOf(it: { scale?: number }) {
+  const n = Number(it.scale)
+  return Number.isFinite(n) && n > 0 ? n : 1
+}
+
+/** 저장된 회전각(011 이전 데이터면 0) */
+function rotationOf(it: { rotation?: number }) {
+  const n = Number(it.rotation)
+  return Number.isFinite(n) ? n : 0
+}
+
 // 새 아이템을 놓을 기본 위치(바닥 가운데 앞쪽)
 const SPAWN_X = 50
 const SPAWN_Y = BACK_B + (100 - BACK_B) * 0.45
@@ -54,6 +66,32 @@ const FLOOR_COLS = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1]
 // 가로선은 안쪽(t=0)일수록 촘촘하게 — 이게 심도를 만든다.
 const FLOOR_ROWS = [0.05, 0.12, 0.21, 0.33, 0.48, 0.67, 0.9]
 
+// 학생이 조절할 수 있는 아이템 크기 범위 (DB check 제약과 같은 값)
+const SCALE_MIN = 0.5
+const SCALE_MAX = 2.5
+
+/** 아이템의 배치 상태 = 위치 + 크기 + 방향 */
+interface Placement {
+  x: number
+  y: number
+  scale: number
+  rotation: number
+}
+interface Drag extends Placement {
+  id: string
+  mode: 'move' | 'resize' | 'rotate'
+  moved: boolean
+  /** 조절 시작 시점의 손가락-아이템 거리·각도와 그때의 배율·회전값 */
+  startDist: number
+  startScale: number
+  startAngle: number
+  startRotation: number
+}
+interface Pending extends Placement {
+  id: string
+  from: Placement
+}
+
 export default function GroupRoom({ me, onSideData }: Props) {
   const [shop, setShop] = useState<ShopItem[]>([])
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([])
@@ -62,6 +100,7 @@ export default function GroupRoom({ me, onSideData }: Props) {
   const [selected, setSelected] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<ShopItem | null>(null) // 구매 확인 팝업
+  const [shopOpen, setShopOpen] = useState(false)
 
   const isMyRoom = viewGroupId === me.group_id && !!me.group_id
 
@@ -109,6 +148,7 @@ export default function GroupRoom({ me, onSideData }: Props) {
     const item = pending
     if (!item) return
     setPending(null)
+    setShopOpen(false) // 새로 산 아이템이 보이도록 상점을 닫는다
     // 바닥 가운데 언저리에 조금씩 흩어 놓아 새로 산 물건이 겹쳐 보이지 않게 한다
     const p = clampToFloor(
       SPAWN_X + (Math.random() - 0.5) * 40,
@@ -175,7 +215,8 @@ export default function GroupRoom({ me, onSideData }: Props) {
         editable={isMyRoom}
         selected={selected}
         onSelect={setSelected}
-        onMove={(id, x, y) => act(() => room.move(id, x, y))}
+        onMove={(id, x, y, scale, rotation) => act(() => room.move(id, x, y, scale, rotation))}
+        onOpenShop={isMyRoom ? () => setShopOpen(true) : undefined}
       />
 
       {isMyRoom && (
@@ -191,34 +232,19 @@ export default function GroupRoom({ me, onSideData }: Props) {
         </div>
       )}
 
-      {/* 상점 (우리 모둠만) */}
-      {isMyRoom && (
-        <div className="card">
-          <h3 className="font-bold text-slate-800 mb-2">🛒 상점</h3>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-            {shop.map((s) => {
-              const afford = (state?.wallet ?? 0) >= s.price
-              return (
-                <button
-                  key={s.type}
-                  onClick={() => setPending(s)}
-                  disabled={busy || !afford}
-                  className={`rounded-xl border p-2 flex flex-col items-center transition-colors ${
-                    afford ? 'bg-white border-slate-200 hover:border-emerald-300' : 'bg-slate-50 border-slate-100 opacity-50'
-                  }`}
-                >
-                  <span className="text-2xl">{s.emoji}</span>
-                  <span className="text-xs font-medium text-slate-700 mt-1">{s.name}</span>
-                  <span className="text-xs font-bold text-emerald-600">🌱 {s.price}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* 모둠 채팅 (우리 모둠만) */}
       {isMyRoom && me.group_id && <GroupChat me={me} groupId={me.group_id} />}
+
+      {/* 상점 팝업 (방 안의 상점 버튼으로 연다) */}
+      {shopOpen && (
+        <ShopModal
+          shop={shop}
+          wallet={state?.wallet ?? 0}
+          busy={busy}
+          onPick={setPending}
+          onClose={() => setShopOpen(false)}
+        />
+      )}
 
       {/* 구매 확인 팝업 */}
       {pending && (
@@ -244,33 +270,40 @@ function Room3D({
   selected,
   onSelect,
   onMove,
+  onOpenShop,
 }: {
   items: RoomState['items']
   shop: ShopItem[]
   editable: boolean
   selected: string | null
   onSelect: (id: string | null) => void
-  onMove: (id: string, x: number, y: number) => void
+  onMove: (id: string, x: number, y: number, scale: number, rotation: number) => void
+  /** 주면 방 안에 상점 버튼이 뜬다 */
+  onOpenShop?: () => void
 }) {
   const areaRef = useRef<HTMLDivElement>(null)
-  // 끄는 동안에는 서버 응답을 기다리지 않고 화면에서 바로 따라 움직인다
-  const [drag, setDrag] = useState<{ id: string; x: number; y: number; moved: boolean } | null>(null)
-  // 끌어다 놓은 뒤 확인/취소를 기다리는 상태 (원래 자리를 기억해 뒀다가 취소 시 되돌린다)
-  const [pending, setPending] = useState<{ id: string; x: number; y: number; fromX: number; fromY: number } | null>(null)
-  // 서버 응답을 기다리는 동안에도 화면은 새 자리를 유지하게 해 주는 값(이동 후 지연 방지)
-  const [localPos, setLocalPos] = useState<Record<string, { x: number; y: number }>>({})
+  // 끄는 동안에는 서버 응답을 기다리지 않고 화면에서 바로 따라 움직인다.
+  // mode 로 "옮기는 중"과 "크기 바꾸는 중"을 구분한다.
+  const [drag, setDrag] = useState<Drag | null>(null)
+  // 끌어다 놓은 뒤 확인/취소를 기다리는 상태 (원래 상태를 기억해 뒀다가 취소 시 되돌린다)
+  const [pending, setPending] = useState<Pending | null>(null)
+  // 서버 응답을 기다리는 동안에도 화면은 새 상태를 유지하게 해 주는 값(저장 후 지연 방지)
+  const [localPos, setLocalPos] = useState<Record<string, Placement>>({})
 
-  // 서버가 새 좌표를 돌려줬거나 아이템이 사라지면 임시 좌표를 정리한다
+  // 서버가 새 값을 돌려줬거나 아이템이 사라지면 임시 상태를 정리한다
   useEffect(() => {
     setLocalPos((prev) => {
       const next = { ...prev }
       let changed = false
       for (const id of Object.keys(prev)) {
         const it = items.find((i) => i.id === id)
-        if (!it) {
-          delete next[id]
-          changed = true
-        } else if (Math.abs(Number(it.x) - prev[id].x) < 0.06 && Math.abs(Number(it.y) - prev[id].y) < 0.06) {
+        const same =
+          it &&
+          Math.abs(Number(it.x) - prev[id].x) < 0.06 &&
+          Math.abs(Number(it.y) - prev[id].y) < 0.06 &&
+          Math.abs(scaleOf(it) - prev[id].scale) < 0.02 &&
+          Math.abs(rotationOf(it) - prev[id].rotation) < 0.5
+        if (!it || same) {
           delete next[id]
           changed = true
         }
@@ -281,68 +314,114 @@ function Room3D({
 
   const emojiOf = (type: string) => shop.find((s) => s.type === type)?.emoji || '❓'
 
-  /** 아이템을 지금 어디에 그려야 하는가 (끄는 중 → 확인 대기 → 임시 좌표 → 서버 값) */
-  function posOf(it: RoomState['items'][number]) {
-    if (drag?.id === it.id) return { x: drag.x, y: drag.y }
-    if (pending?.id === it.id) return { x: pending.x, y: pending.y }
+  /** 아이템을 지금 어떤 상태로 그려야 하는가 (끄는 중 → 확인 대기 → 임시 값 → 서버 값) */
+  function placementOf(it: RoomState['items'][number]): Placement {
+    if (drag?.id === it.id) return { x: drag.x, y: drag.y, scale: drag.scale, rotation: drag.rotation }
+    if (pending?.id === it.id)
+      return { x: pending.x, y: pending.y, scale: pending.scale, rotation: pending.rotation }
     const local = localPos[it.id]
     if (local) return local
     // 저장된 값이 무엇이든(예: 마이그레이션 전 격자 좌표) 항상 바닥 위에 그린다
-    return clampToFloor(Number(it.x), Number(it.y))
+    return { ...clampToFloor(Number(it.x), Number(it.y)), scale: scaleOf(it), rotation: rotationOf(it) }
   }
 
+  /** 컨테이너 기준 비율 좌표 */
   function pointOf(e: React.PointerEvent) {
     const r = areaRef.current?.getBoundingClientRect()
     if (!r) return { x: SPAWN_X, y: SPAWN_Y }
     return clampToFloor(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100)
   }
+  /** 아이템이 서 있는 지점을 기준으로 한 손가락의 거리(px)와 각도(도) */
+  function vectorFrom(e: React.PointerEvent, p: Placement) {
+    const r = areaRef.current?.getBoundingClientRect()
+    if (!r) return { dist: 1, angle: 0 }
+    const ax = r.left + (p.x / 100) * r.width
+    const ay = r.top + (p.y / 100) * r.height
+    const dx = e.clientX - ax
+    const dy = e.clientY - ay
+    return { dist: Math.max(1, Math.hypot(dx, dy)), angle: (Math.atan2(dy, dx) * 180) / Math.PI }
+  }
 
-  function onPointerDown(e: React.PointerEvent, it: RoomState['items'][number]) {
+  /** 이 아이템의 "되돌릴 상태"(확인 대기 중이면 최초 상태) */
+  function originOf(it: RoomState['items'][number]): Placement {
+    if (pending?.id === it.id) return pending.from
+    const local = localPos[it.id]
+    if (local) return local
+    return { ...clampToFloor(Number(it.x), Number(it.y)), scale: scaleOf(it), rotation: rotationOf(it) }
+  }
+
+  function startDrag(e: React.PointerEvent, it: RoomState['items'][number], mode: Drag['mode']) {
     if (!editable) return
     e.preventDefault()
+    e.stopPropagation()
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    const from = pending?.id === it.id ? { x: pending.fromX, y: pending.fromY } : posOf(it)
-    setDrag({ id: it.id, x: from.x, y: from.y, moved: false })
+    const cur = placementOf(it)
+    const v = vectorFrom(e, cur)
+    setDrag({
+      id: it.id,
+      mode,
+      ...cur,
+      moved: false,
+      startDist: v.dist,
+      startScale: cur.scale,
+      startAngle: v.angle,
+      startRotation: cur.rotation,
+    })
   }
+
   function onPointerMove(e: React.PointerEvent) {
     if (!drag) return
-    const p = pointOf(e)
-    setDrag({ ...drag, ...p, moved: true })
+    if (drag.mode === 'move') {
+      setDrag({ ...drag, ...pointOf(e), moved: true })
+      return
+    }
+    const v = vectorFrom(e, drag)
+    if (drag.mode === 'resize') {
+      // 아이템에서 손가락이 멀어진 만큼 커진다
+      const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, drag.startScale * (v.dist / drag.startDist)))
+      setDrag({ ...drag, scale, moved: true })
+    } else {
+      // 아이템을 중심으로 손가락이 돈 만큼 돌아간다 (360도)
+      const delta = v.angle - drag.startAngle
+      const rotation = (((drag.startRotation + delta) % 360) + 360) % 360
+      setDrag({ ...drag, rotation, moved: true })
+    }
   }
+
   function onPointerUp(e: React.PointerEvent) {
     if (!drag) return
     const d = drag
     setDrag(null)
-    if (d.moved) {
-      const p = pointOf(e)
-      const it = items.find((i) => i.id === d.id)
-      const origin =
-        pending?.id === d.id
-          ? { x: pending.fromX, y: pending.fromY }
-          : it
-            ? clampToFloor(Number(it.x), Number(it.y))
-            : p
-      // 아직 저장하지 않는다 — 확인을 눌러야 저장된다
-      setPending({ id: d.id, x: p.x, y: p.y, fromX: origin.x, fromY: origin.y })
-      onSelect(d.id)
-    } else {
+    if (!d.moved) {
       onSelect(selected === d.id ? null : d.id) // 톡 누르면 선택 토글
+      return
     }
+    const it = items.find((i) => i.id === d.id)
+    const next: Placement =
+      d.mode === 'move'
+        ? { ...pointOf(e), scale: d.scale, rotation: d.rotation }
+        : { x: d.x, y: d.y, scale: d.scale, rotation: d.rotation }
+    // 아직 저장하지 않는다 — 확인을 눌러야 저장된다
+    setPending({ id: d.id, ...next, from: it ? originOf(it) : next })
+    onSelect(d.id)
   }
 
-  function confirmMove() {
+  function confirmChange() {
     if (!pending) return
     const p = pending
     setPending(null)
     onSelect(null) // 초록 테두리를 없앤다
-    // 화면은 새 자리를 그대로 유지한 채(지연 없음) 저장만 뒤에서 진행된다
-    setLocalPos((prev) => ({ ...prev, [p.id]: { x: p.x, y: p.y } }))
-    onMove(p.id, p.x, p.y)
+    // 화면은 새 상태를 그대로 유지한 채(지연 없음) 저장만 뒤에서 진행된다
+    setLocalPos((prev) => ({ ...prev, [p.id]: { x: p.x, y: p.y, scale: p.scale, rotation: p.rotation } }))
+    onMove(p.id, p.x, p.y, p.scale, p.rotation)
   }
-  function cancelMove() {
+  function cancelChange() {
     if (!pending) return
+    const p = pending
     setPending(null)
     onSelect(null)
+    // 원래 상태로 되돌려 둔다(서버 값이 이미 옛 값이면 곧 정리된다)
+    setLocalPos((prev) => ({ ...prev, [p.id]: p.from }))
   }
 
   // 각 면의 clip-path — 정면 벽을 가운데 두고 네 사다리꼴이 화면 모서리로 뻗는다
@@ -355,10 +434,13 @@ function Room3D({
   return (
     <div className="card p-0 overflow-hidden">
       <div ref={areaRef} className="relative w-full select-none" style={{ aspectRatio: '16 / 10' }}>
-        {/* 천장 — 가장 밝다 */}
+        {/* ── 색은 앱 전체 톤(새싹 그린 · 화이트)에 맞춘 연한 계열 ──
+            같은 초록이라도 면마다 밝기를 달리해 다섯 면이 서로 구분되게 한다.
+            천장(가장 밝음) → 왼쪽 벽 → 정면 벽 → 오른쪽 벽(그늘) → 바닥 순 */}
+        {/* 천장 */}
         <div
           className="absolute inset-0"
-          style={{ clipPath: CEILING, background: 'linear-gradient(180deg, #fffdfe 0%, #f7edf2 100%)' }}
+          style={{ clipPath: CEILING, background: 'linear-gradient(180deg, #ffffff 0%, #f2faf5 100%)' }}
         />
         {/* 왼쪽 벽 — 빛을 받는 쪽 */}
         <div
@@ -366,7 +448,7 @@ function Room3D({
           style={{
             clipPath: LEFT_WALL,
             background:
-              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.75) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(90deg, #f3e2ea 0%, #fbf2f6 100%)',
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.85) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(90deg, #e9f5ee 0%, #fbfefc 100%)',
           }}
         />
         {/* 오른쪽 벽 — 그늘진 쪽이라 한 톤 어둡게 (좌우가 확실히 구분된다) */}
@@ -375,7 +457,7 @@ function Room3D({
           style={{
             clipPath: RIGHT_WALL,
             background:
-              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.5) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(90deg, #e6cfdb 0%, #dcc3d2 100%)',
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.6) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(90deg, #d9ecdf 0%, #cfe5d7 100%)',
           }}
         />
         {/* 정면 벽 — 창문·액자를 걸 수 있는 면 */}
@@ -384,13 +466,13 @@ function Room3D({
           style={{
             clipPath: BACK_WALL,
             background:
-              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.7) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(180deg, #fbf1f5 0%, #f2e2ea 100%)',
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.8) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(180deg, #f6fcf8 0%, #e8f4ec 100%)',
           }}
         />
         {/* 바닥 */}
         <div
           className="absolute inset-0"
-          style={{ clipPath: FLOOR, background: 'linear-gradient(180deg, #ecd8e1 0%, #e7cddb 55%, #dfc2d1 100%)' }}
+          style={{ clipPath: FLOOR, background: 'linear-gradient(180deg, #e2f0e7 0%, #d7ebde 55%, #cbe4d4 100%)' }}
         />
         {/* 바닥 타일 — 안쪽으로 모이는 세로선 + 멀수록 촘촘해지는 가로선이 심도를 만든다.
             preserveAspectRatio="none" 로 비율 좌표를 그대로 쓰고,
@@ -422,60 +504,108 @@ function Room3D({
           className="absolute inset-0"
           style={{
             clipPath: `polygon(0% 100%, ${BACK_L}% ${BACK_B}%, ${BACK_R}% ${BACK_B}%, 100% 100%, 100% 98.6%, ${BACK_R}% ${BACK_B - 1.4}%, ${BACK_L}% ${BACK_B - 1.4}%, 0% 98.6%)`,
-            background: 'rgba(190,150,172,.55)',
+            background: 'rgba(134,183,152,.5)',
           }}
         />
 
         {/* 아이템 (앞쪽에 있을수록 크고 위에 그린다) */}
         {items.map((it) => {
-          const live = posOf(it)
-          const s = depthScale(live.y)
+          const live = placementOf(it)
+          const s = depthScale(live.y) * live.scale
           const isSel = selected === it.id
           const dragging = drag?.id === it.id
           return (
-            <button
+            <div
               key={it.id}
-              onPointerDown={(e) => onPointerDown(e, it)}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={() => setDrag(null)}
-              disabled={!editable}
-              className={`absolute no-touch-scroll ${editable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
+              className="absolute"
               style={{
                 left: `${live.x}%`,
                 top: `${live.y}%`,
-                transform: `translate(-50%, -100%) scale(${s})`,
-                transformOrigin: 'bottom center',
+                transform: 'translate(-50%, -100%)',
                 zIndex: Math.round(live.y * 10),
-                filter: dragging ? 'drop-shadow(0 10px 8px rgba(0,0,0,.25))' : 'none',
               }}
-              title={shop.find((sh) => sh.type === it.item_type)?.name || it.item_type}
             >
-              <span className="block text-4xl leading-none">{emojiOf(it.item_type)}</span>
-              {/* 바닥 그림자 */}
-              <span
-                className="block mx-auto rounded-[50%]"
-                style={{ width: 26, height: 7, marginTop: -4, background: 'rgba(15,23,42,.18)', filter: 'blur(2px)' }}
-              />
-              {isSel && <span className="absolute -inset-1 rounded-xl ring-2 ring-emerald-500 pointer-events-none" />}
-            </button>
+              <button
+                onPointerDown={(e) => startDrag(e, it, 'move')}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={() => setDrag(null)}
+                disabled={!editable}
+                className={`block no-touch-scroll ${editable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
+                style={{
+                  transform: `scale(${s})`,
+                  transformOrigin: 'bottom center',
+                  filter: dragging ? 'drop-shadow(0 10px 8px rgba(0,0,0,.25))' : 'none',
+                }}
+                title={shop.find((sh) => sh.type === it.item_type)?.name || it.item_type}
+              >
+                {/* 회전은 그림에만 걸어 크기·그림자와 분리한다 */}
+                <span
+                  className="block text-4xl leading-none"
+                  style={{ transform: `rotate(${live.rotation}deg)`, transformOrigin: 'center' }}
+                >
+                  {emojiOf(it.item_type)}
+                </span>
+                {/* 바닥 그림자 */}
+                <span
+                  className="block mx-auto rounded-[50%]"
+                  style={{ width: 26, height: 7, marginTop: -4, background: 'rgba(15,23,42,.16)', filter: 'blur(2px)' }}
+                />
+                {isSel && <span className="absolute -inset-1 rounded-xl ring-2 ring-emerald-500 pointer-events-none" />}
+              </button>
+
+              {/* 선택했을 때만 나오는 손잡이 두 개 */}
+              {isSel && editable && (
+                <>
+                  <button
+                    onPointerDown={(e) => startDrag(e, it, 'resize')}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                    onPointerCancel={() => setDrag(null)}
+                    className="absolute no-touch-scroll w-7 h-7 rounded-full bg-white border-2 border-emerald-500 shadow flex items-center justify-center text-emerald-600 text-xs font-black cursor-nwse-resize"
+                    style={{ right: -14, top: -14 }}
+                    title="끌어서 크기 조절"
+                  >
+                    ⤢
+                  </button>
+                  <button
+                    onPointerDown={(e) => startDrag(e, it, 'rotate')}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                    onPointerCancel={() => setDrag(null)}
+                    className="absolute no-touch-scroll w-7 h-7 rounded-full bg-white border-2 border-sky-500 shadow flex items-center justify-center text-sky-600 text-xs font-black cursor-grab active:cursor-grabbing"
+                    style={{ left: -14, top: -14 }}
+                    title="끌어서 회전"
+                  >
+                    ↻
+                  </button>
+                </>
+              )}
+            </div>
           )
         })}
 
-        {/* 이동 확인 — 확인을 누르면 저장되고 초록 테두리가 사라진다 */}
+        {/* 변경 확인 — 확인을 누르면 저장되고 초록 테두리가 사라진다 */}
         {pending && (
-          <div
-            className="absolute left-1/2 -translate-x-1/2 bottom-2 z-[2000] flex items-center gap-2 bg-white/95 backdrop-blur rounded-full shadow-lg px-2 py-1.5"
-            style={{ pointerEvents: 'auto' }}
-          >
-            <span className="text-xs text-slate-500 pl-2">여기에 놓을까요?</span>
-            <button onClick={cancelMove} className="h-9 px-3 rounded-full bg-slate-200 text-slate-700 text-sm font-bold">
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-2 z-[2000] flex items-center gap-2 bg-white/95 backdrop-blur rounded-full shadow-lg px-2 py-1.5">
+            <span className="text-xs text-slate-500 pl-2">이렇게 둘까요?</span>
+            <button onClick={cancelChange} className="h-9 px-3 rounded-full bg-slate-200 text-slate-700 text-sm font-bold">
               취소
             </button>
-            <button onClick={confirmMove} className="h-9 px-4 rounded-full bg-emerald-600 text-white text-sm font-bold">
+            <button onClick={confirmChange} className="h-9 px-4 rounded-full bg-emerald-600 text-white text-sm font-bold">
               확인
             </button>
           </div>
+        )}
+
+        {/* 방 안의 상점 버튼 */}
+        {onOpenShop && (
+          <button
+            onClick={onOpenShop}
+            className="absolute left-3 bottom-3 z-[1500] flex items-center gap-1.5 h-10 px-4 rounded-full bg-white/95 backdrop-blur shadow-lg border border-emerald-200 text-emerald-700 font-bold text-sm hover:bg-white active:scale-95 transition"
+          >
+            🛒 상점
+          </button>
         )}
 
         {items.length === 0 && (
@@ -483,6 +613,65 @@ function Room3D({
             상점에서 아이템을 사서 공간을 꾸며보세요.
           </p>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// 상점 팝업
+// ─────────────────────────────────────────────────────────────
+
+function ShopModal({
+  shop,
+  wallet,
+  busy,
+  onPick,
+  onClose,
+}: {
+  shop: ShopItem[]
+  wallet: number
+  busy: boolean
+  onPick: (s: ShopItem) => void
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 px-5 pt-5 pb-3">
+          <h3 className="font-black text-slate-900 text-lg flex-1">🛒 상점</h3>
+          <span className="text-emerald-600 font-bold text-sm">🌱 {wallet}</span>
+          <button onClick={onClose} className="w-9 h-9 rounded-full hover:bg-slate-100 text-slate-400 text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="overflow-y-auto px-5 pb-5">
+          <div className="grid grid-cols-3 gap-2">
+            {shop.map((s) => {
+              const afford = wallet >= s.price
+              return (
+                <button
+                  key={s.type}
+                  onClick={() => onPick(s)}
+                  disabled={busy || !afford}
+                  className={`rounded-xl border p-2 flex flex-col items-center transition-colors ${
+                    afford ? 'bg-white border-slate-200 hover:border-emerald-300' : 'bg-slate-50 border-slate-100 opacity-50'
+                  }`}
+                >
+                  <span className="text-3xl">{s.emoji}</span>
+                  <span className="text-xs font-medium text-slate-700 mt-1">{s.name}</span>
+                  <span className="text-xs font-bold text-emerald-600">🌱 {s.price}</span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-slate-400 mt-3 text-center">
+            산 아이템은 끌어서 옮기고, 선택하면 크기(⤢)와 방향(↻)을 바꿀 수 있어요.
+          </p>
+        </div>
       </div>
     </div>
   )

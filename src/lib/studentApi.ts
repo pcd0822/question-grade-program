@@ -68,6 +68,10 @@ export interface RoomItemT {
   item_type: string
   x: number
   y: number
+  /** 학생이 조절한 크기 배율(0.5~2.5). 마이그레이션 011 이전이면 없을 수 있다. */
+  scale?: number
+  /** 회전 각도(0~360). 마이그레이션 011 이전이면 없을 수 있다. */
+  rotation?: number
 }
 
 /** 모둠 채팅 메시지 */
@@ -107,7 +111,8 @@ export const room = {
   // x·y 는 공간 내 비율(0~100). 생략하면 바닥 가운데쯤에 놓인다.
   buy: (itemType: string, x?: number, y?: number) =>
     callFn<RoomState>('room', { action: 'buy', ...creds(), itemType, x, y }),
-  move: (itemId: string, x: number, y: number) =>
-    callFn<RoomState>('room', { action: 'move', ...creds(), itemId, x, y }),
+  // scale·rotation 을 함께 보내면 위치·크기·방향을 한 번에 저장한다.
+  move: (itemId: string, x: number, y: number, scale?: number, rotation?: number) =>
+    callFn<RoomState>('room', { action: 'move', ...creds(), itemId, x, y, scale, rotation }),
   remove: (itemId: string) => callFn<RoomState>('room', { action: 'remove', ...creds(), itemId }),
 }
