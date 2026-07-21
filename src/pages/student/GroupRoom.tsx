@@ -21,28 +21,118 @@ const BACK_R = 80 // 정면 벽의 오른쪽 변
 const BACK_T = 12 // 정면 벽의 윗변 (= 천장이 만나는 곳)
 const BACK_B = 56 // 정면 벽의 아랫변 (= 바닥이 만나는 곳)
 
-/** 바닥에서 y 높이일 때의 깊이 t (0 = 가장 안쪽, 1 = 가장 앞) */
-function floorDepth(y: number) {
-  return Math.min(1, Math.max(0, (y - BACK_B) / (100 - BACK_B)))
+/** 아이템이 놓인 면. 좌표만으로 판정하므로 따로 저장할 필요가 없다. */
+type Surface = 'floor' | 'ceiling' | 'left' | 'right' | 'back'
+
+/** 다섯 면의 다각형 — clip-path 와 같은 좌표를 쓴다(그림과 판정이 어긋나지 않도록) */
+const FACES: { id: Surface; poly: [number, number][] }[] = [
+  {
+    id: 'back',
+    poly: [
+      [BACK_L, BACK_T],
+      [BACK_R, BACK_T],
+      [BACK_R, BACK_B],
+      [BACK_L, BACK_B],
+    ],
+  },
+  {
+    id: 'ceiling',
+    poly: [
+      [0, 0],
+      [100, 0],
+      [BACK_R, BACK_T],
+      [BACK_L, BACK_T],
+    ],
+  },
+  {
+    id: 'floor',
+    poly: [
+      [BACK_L, BACK_B],
+      [BACK_R, BACK_B],
+      [100, 100],
+      [0, 100],
+    ],
+  },
+  {
+    id: 'left',
+    poly: [
+      [0, 0],
+      [BACK_L, BACK_T],
+      [BACK_L, BACK_B],
+      [0, 100],
+    ],
+  },
+  {
+    id: 'right',
+    poly: [
+      [100, 0],
+      [100, 100],
+      [BACK_R, BACK_B],
+      [BACK_R, BACK_T],
+    ],
+  },
+]
+
+/** 다각형 내부 판정(광선 교차법) */
+function pointInPoly(x: number, y: number, poly: [number, number][]) {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
 }
 
+/** 이 좌표가 어느 면 위인가 (창문·선반은 벽에, 화분·책상은 바닥에) */
+function surfaceAt(x: number, y: number): Surface {
+  for (const f of FACES) if (pointInPoly(x, y, f.poly)) return f.id
+  return 'floor'
+}
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+
 /**
- * 바닥(사다리꼴) 안으로 좌표를 가둔다.
- * 안쪽으로 갈수록 바닥이 좁아지므로, 그 깊이에서의 좌우 폭을 계산해 맞춘다.
+ * 그 지점의 심도에 따른 크기.
+ * 안쪽(정면 벽)일수록 작고, 화면 앞쪽으로 나올수록 크다.
  */
+function depthScaleAt(x: number, y: number, s: Surface) {
+  switch (s) {
+    case 'back':
+      return 0.55 // 가장 먼 면이라 일정하다
+    case 'floor':
+      return 0.55 + clamp01((y - BACK_B) / (100 - BACK_B)) * 0.7
+    case 'ceiling':
+      return 0.55 + clamp01((BACK_T - y) / BACK_T) * 0.7
+    case 'left':
+      return 0.55 + clamp01((BACK_L - x) / BACK_L) * 0.7
+    case 'right':
+      return 0.55 + clamp01((x - BACK_R) / (100 - BACK_R)) * 0.7
+  }
+}
+
+/** 겹칠 때 앞뒤 순서 — 정면 벽이 가장 뒤, 바닥에 선 물건이 가장 앞 */
+function zIndexAt(x: number, y: number, s: Surface) {
+  if (s === 'back') return 1
+  if (s === 'ceiling') return 2
+  if (s === 'floor') return 400 + Math.round(y * 10)
+  return 10 + Math.round(depthScaleAt(x, y, s) * 100)
+}
+
+/** 방 안(모든 면)으로 좌표를 가둔다 */
+function clampToRoom(x: number, y: number) {
+  return { x: Math.min(98, Math.max(2, x)), y: Math.min(98, Math.max(2, y)) }
+}
+
+/** 바닥 위로만 가둔다 — 새로 산 아이템을 놓을 때 쓴다 */
 function clampToFloor(x: number, y: number) {
   const cy = Math.min(96, Math.max(BACK_B + 2, y))
-  const t = floorDepth(cy)
+  const t = clamp01((cy - BACK_B) / (100 - BACK_B))
   // 바닥의 좌우 경계는 안쪽 (BACK_L, BACK_R) 에서 앞쪽 (0, 100) 으로 곧게 벌어진다
   const left = BACK_L * (1 - t)
   const right = BACK_R + (100 - BACK_R) * t
-  const pad = 2 + 2 * (1 - t) // 안쪽일수록 벽에 바짝 붙지 않게
+  const pad = 2 + 2 * (1 - t)
   return { x: Math.min(right - pad, Math.max(left + pad, x)), y: cy }
-}
-
-/** 뒤쪽에 놓을수록 작게 보이게 해서 심도를 만든다 */
-function depthScale(y: number) {
-  return 0.55 + floorDepth(y) * 0.7
 }
 
 /** 저장된 배율(011 이전 데이터면 1) */
@@ -81,12 +171,16 @@ interface Drag extends Placement {
   id: string
   mode: 'move' | 'resize' | 'rotate'
   moved: boolean
-  /** 조절 시작 시점의 손가락-아이템 거리·각도와 그때의 배율·회전값 */
+  /** 조절 시작 시점의 손가락-아이템 거리와 그때의 배율 */
   startDist: number
   startScale: number
-  startAngle: number
+  /** 회전 시작 시점의 손가락 x 좌표와 그때의 회전값 */
+  startClientX: number
   startRotation: number
 }
+
+/** 가로로 이만큼(px) 끌면 한 바퀴(360°) 돈다 */
+const ROTATE_PX_PER_TURN = 260
 interface Pending extends Placement {
   id: string
   from: Placement
@@ -222,7 +316,9 @@ export default function GroupRoom({ me, onSideData }: Props) {
       {isMyRoom && (
         <div className="flex items-center gap-2">
           <p className="text-xs text-slate-400 flex-1">
-            {selected ? '아이템을 끌어 옮기거나, 오른쪽 버튼으로 되팔 수 있어요.' : '아이템을 끌어서 원하는 자리에 놓아보세요.'}
+            {selected
+              ? '⤢ 크기 · ↻ 방향을 끌어서 조절하고, 오른쪽 버튼으로 되팔 수 있어요.'
+              : '끌어서 바닥은 물론 벽에도 붙일 수 있어요. (창문·액자·선반)'}
           </p>
           {selected && (
             <button onClick={sell} className="btn-secondary text-sm shrink-0">
@@ -321,25 +417,22 @@ function Room3D({
       return { x: pending.x, y: pending.y, scale: pending.scale, rotation: pending.rotation }
     const local = localPos[it.id]
     if (local) return local
-    // 저장된 값이 무엇이든(예: 마이그레이션 전 격자 좌표) 항상 바닥 위에 그린다
-    return { ...clampToFloor(Number(it.x), Number(it.y)), scale: scaleOf(it), rotation: rotationOf(it) }
+    return { ...clampToRoom(Number(it.x), Number(it.y)), scale: scaleOf(it), rotation: rotationOf(it) }
   }
 
-  /** 컨테이너 기준 비율 좌표 */
+  /** 컨테이너 기준 비율 좌표. 바닥뿐 아니라 벽·천장 어디든 놓을 수 있다. */
   function pointOf(e: React.PointerEvent) {
     const r = areaRef.current?.getBoundingClientRect()
     if (!r) return { x: SPAWN_X, y: SPAWN_Y }
-    return clampToFloor(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100)
+    return clampToRoom(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100)
   }
-  /** 아이템이 서 있는 지점을 기준으로 한 손가락의 거리(px)와 각도(도) */
-  function vectorFrom(e: React.PointerEvent, p: Placement) {
+  /** 아이템이 놓인 지점에서 손가락까지의 거리(px) — 크기 조절에 쓴다 */
+  function distFrom(e: React.PointerEvent, p: Placement) {
     const r = areaRef.current?.getBoundingClientRect()
-    if (!r) return { dist: 1, angle: 0 }
+    if (!r) return 1
     const ax = r.left + (p.x / 100) * r.width
     const ay = r.top + (p.y / 100) * r.height
-    const dx = e.clientX - ax
-    const dy = e.clientY - ay
-    return { dist: Math.max(1, Math.hypot(dx, dy)), angle: (Math.atan2(dy, dx) * 180) / Math.PI }
+    return Math.max(1, Math.hypot(e.clientX - ax, e.clientY - ay))
   }
 
   /** 이 아이템의 "되돌릴 상태"(확인 대기 중이면 최초 상태) */
@@ -347,7 +440,7 @@ function Room3D({
     if (pending?.id === it.id) return pending.from
     const local = localPos[it.id]
     if (local) return local
-    return { ...clampToFloor(Number(it.x), Number(it.y)), scale: scaleOf(it), rotation: rotationOf(it) }
+    return { ...clampToRoom(Number(it.x), Number(it.y)), scale: scaleOf(it), rotation: rotationOf(it) }
   }
 
   function startDrag(e: React.PointerEvent, it: RoomState['items'][number], mode: Drag['mode']) {
@@ -356,15 +449,14 @@ function Room3D({
     e.stopPropagation()
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     const cur = placementOf(it)
-    const v = vectorFrom(e, cur)
     setDrag({
       id: it.id,
       mode,
       ...cur,
       moved: false,
-      startDist: v.dist,
+      startDist: distFrom(e, cur),
       startScale: cur.scale,
-      startAngle: v.angle,
+      startClientX: e.clientX,
       startRotation: cur.rotation,
     })
   }
@@ -373,16 +465,13 @@ function Room3D({
     if (!drag) return
     if (drag.mode === 'move') {
       setDrag({ ...drag, ...pointOf(e), moved: true })
-      return
-    }
-    const v = vectorFrom(e, drag)
-    if (drag.mode === 'resize') {
+    } else if (drag.mode === 'resize') {
       // 아이템에서 손가락이 멀어진 만큼 커진다
-      const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, drag.startScale * (v.dist / drag.startDist)))
+      const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, drag.startScale * (distFrom(e, drag) / drag.startDist)))
       setDrag({ ...drag, scale, moved: true })
     } else {
-      // 아이템을 중심으로 손가락이 돈 만큼 돌아간다 (360도)
-      const delta = v.angle - drag.startAngle
+      // 세로축(Y축)을 중심으로 도는 회전. 가로로 끈 만큼 돌아간다(제자리에서 방향 바꾸기).
+      const delta = ((e.clientX - drag.startClientX) / ROTATE_PX_PER_TURN) * 360
       const rotation = (((drag.startRotation + delta) % 360) + 360) % 360
       setDrag({ ...drag, rotation, moved: true })
     }
@@ -511,7 +600,9 @@ function Room3D({
         {/* 아이템 (앞쪽에 있을수록 크고 위에 그린다) */}
         {items.map((it) => {
           const live = placementOf(it)
-          const s = depthScale(live.y) * live.scale
+          const face = surfaceAt(live.x, live.y)
+          const onFloor = face === 'floor'
+          const s = depthScaleAt(live.x, live.y, face) * live.scale
           const isSel = selected === it.id
           const dragging = drag?.id === it.id
           return (
@@ -521,8 +612,9 @@ function Room3D({
               style={{
                 left: `${live.x}%`,
                 top: `${live.y}%`,
-                transform: 'translate(-50%, -100%)',
-                zIndex: Math.round(live.y * 10),
+                // 바닥에 놓인 것은 그 지점에 "서고", 벽·천장에 붙인 것은 그 지점을 중심으로 걸린다
+                transform: onFloor ? 'translate(-50%, -100%)' : 'translate(-50%, -50%)',
+                zIndex: zIndexAt(live.x, live.y, face),
               }}
             >
               <button
@@ -534,23 +626,29 @@ function Room3D({
                 className={`block no-touch-scroll ${editable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
                 style={{
                   transform: `scale(${s})`,
-                  transformOrigin: 'bottom center',
+                  transformOrigin: onFloor ? 'bottom center' : 'center',
                   filter: dragging ? 'drop-shadow(0 10px 8px rgba(0,0,0,.25))' : 'none',
                 }}
                 title={shop.find((sh) => sh.type === it.item_type)?.name || it.item_type}
               >
-                {/* 회전은 그림에만 걸어 크기·그림자와 분리한다 */}
+                {/* 회전은 그림에만 걸어 크기·그림자와 분리한다.
+                    세로축(Y축)을 중심으로 도는 3D 회전이라 옆으로 돌아서는 것처럼 보인다. */}
                 <span
                   className="block text-4xl leading-none"
-                  style={{ transform: `rotate(${live.rotation}deg)`, transformOrigin: 'center' }}
+                  style={{
+                    transform: `perspective(420px) rotateY(${live.rotation}deg)`,
+                    transformOrigin: 'center',
+                  }}
                 >
                   {emojiOf(it.item_type)}
                 </span>
-                {/* 바닥 그림자 */}
-                <span
-                  className="block mx-auto rounded-[50%]"
-                  style={{ width: 26, height: 7, marginTop: -4, background: 'rgba(15,23,42,.16)', filter: 'blur(2px)' }}
-                />
+                {/* 바닥 그림자 — 바닥에 선 물건에만 */}
+                {onFloor && (
+                  <span
+                    className="block mx-auto rounded-[50%]"
+                    style={{ width: 26, height: 7, marginTop: -4, background: 'rgba(15,23,42,.16)', filter: 'blur(2px)' }}
+                  />
+                )}
                 {isSel && <span className="absolute -inset-1 rounded-xl ring-2 ring-emerald-500 pointer-events-none" />}
               </button>
 
@@ -668,8 +766,10 @@ function ShopModal({
               )
             })}
           </div>
-          <p className="text-xs text-slate-400 mt-3 text-center">
-            산 아이템은 끌어서 옮기고, 선택하면 크기(⤢)와 방향(↻)을 바꿀 수 있어요.
+          <p className="text-xs text-slate-400 mt-3 text-center leading-relaxed">
+            산 아이템은 끌어서 바닥·벽 어디에나 놓을 수 있어요.
+            <br />
+            톡 누르면 크기(⤢)와 방향(↻)을 바꿀 수 있어요.
           </p>
         </div>
       </div>
