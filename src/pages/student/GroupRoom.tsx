@@ -12,42 +12,47 @@ interface Props {
   onSideData?: (d: RoomSideData | null) => void
 }
 
-// ── 아이소메트릭 방의 기하 ──────────────────────────────────────
-// 두 벽이 가운데 뒤쪽 모서리에서 만나고 그 아래로 바닥이 마름모로 펼쳐진다.
-// (왼쪽벽 · 오른쪽벽 · 바닥이 서로 구분되는 인형의 집 시점)
-// 좌표는 모두 공간 가로·세로의 비율(0~100).
-const CORNER_X = 50 // 두 벽이 만나는 뒤쪽 모서리의 x
-const WALL_TOP_BACK = 6 // 모서리 꼭대기
-const WALL_TOP_SIDE = 22 // 화면 좌우 끝에서의 벽 윗변
-const FLOOR_BACK = 52 // 바닥 마름모의 뒤 꼭짓점 (= 모서리 아래)
-const FLOOR_SIDE = 68 // 바닥 마름모의 좌·우 꼭짓점
-const FLOOR_FRONT = 94 // 바닥 마름모의 앞 꼭짓점
+// ── 방의 기하 (1점 투시) ────────────────────────────────────────
+// 사용자가 바라보는 쪽만 뚫린 상자. 정면 벽(뒷벽)을 가운데 직사각형으로 두고,
+// 거기서 화면 네 모서리로 뻗어 나가는 사다리꼴 넷이 각각
+// 천장 · 바닥 · 왼쪽 벽 · 오른쪽 벽이 된다. 좌표는 공간 가로·세로의 비율(0~100).
+const BACK_L = 20 // 정면 벽의 왼쪽 변
+const BACK_R = 80 // 정면 벽의 오른쪽 변
+const BACK_T = 12 // 정면 벽의 윗변 (= 천장이 만나는 곳)
+const BACK_B = 56 // 정면 벽의 아랫변 (= 바닥이 만나는 곳)
 
-// 바닥 마름모의 중심과 반지름
-const FC_X = CORNER_X
-const FC_Y = (FLOOR_BACK + FLOOR_FRONT) / 2
-const FR_X = 50
-const FR_Y = (FLOOR_FRONT - FLOOR_BACK) / 2
+/** 바닥에서 y 높이일 때의 깊이 t (0 = 가장 안쪽, 1 = 가장 앞) */
+function floorDepth(y: number) {
+  return Math.min(1, Math.max(0, (y - BACK_B) / (100 - BACK_B)))
+}
 
 /**
- * 바닥(마름모) 안으로 좌표를 가둔다.
- * 마름모 내부 판정은 |dx|/a + |dy|/b <= 1 이므로, 벗어나면 그 비율만큼 당겨 넣는다.
+ * 바닥(사다리꼴) 안으로 좌표를 가둔다.
+ * 안쪽으로 갈수록 바닥이 좁아지므로, 그 깊이에서의 좌우 폭을 계산해 맞춘다.
  */
 function clampToFloor(x: number, y: number) {
-  const dx = (x - FC_X) / FR_X
-  const dy = (y - FC_Y) / FR_Y
-  const d = Math.abs(dx) + Math.abs(dy)
-  const margin = 0.86 // 가장자리에 딱 붙지 않도록 조금 안쪽까지만
-  if (d <= margin || d === 0) return { x, y }
-  const k = margin / d
-  return { x: FC_X + dx * k * FR_X, y: FC_Y + dy * k * FR_Y }
+  const cy = Math.min(96, Math.max(BACK_B + 2, y))
+  const t = floorDepth(cy)
+  // 바닥의 좌우 경계는 안쪽 (BACK_L, BACK_R) 에서 앞쪽 (0, 100) 으로 곧게 벌어진다
+  const left = BACK_L * (1 - t)
+  const right = BACK_R + (100 - BACK_R) * t
+  const pad = 2 + 2 * (1 - t) // 안쪽일수록 벽에 바짝 붙지 않게
+  return { x: Math.min(right - pad, Math.max(left + pad, x)), y: cy }
 }
 
-/** 뒤쪽에 놓을수록 작게 보이게 해서 깊이감을 만든다 */
+/** 뒤쪽에 놓을수록 작게 보이게 해서 심도를 만든다 */
 function depthScale(y: number) {
-  const t = (y - FLOOR_BACK) / (FLOOR_FRONT - FLOOR_BACK)
-  return 0.7 + Math.min(1, Math.max(0, t)) * 0.45
+  return 0.55 + floorDepth(y) * 0.7
 }
+
+// 새 아이템을 놓을 기본 위치(바닥 가운데 앞쪽)
+const SPAWN_X = 50
+const SPAWN_Y = BACK_B + (100 - BACK_B) * 0.45
+
+// 바닥 격자. 세로선은 안쪽 벽면을 0~1 로 나눈 지점에서 시작해 화면 앞쪽으로 벌어진다.
+const FLOOR_COLS = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1]
+// 가로선은 안쪽(t=0)일수록 촘촘하게 — 이게 심도를 만든다.
+const FLOOR_ROWS = [0.05, 0.12, 0.21, 0.33, 0.48, 0.67, 0.9]
 
 export default function GroupRoom({ me, onSideData }: Props) {
   const [shop, setShop] = useState<ShopItem[]>([])
@@ -106,8 +111,8 @@ export default function GroupRoom({ me, onSideData }: Props) {
     setPending(null)
     // 바닥 가운데 언저리에 조금씩 흩어 놓아 새로 산 물건이 겹쳐 보이지 않게 한다
     const p = clampToFloor(
-      FC_X + (Math.random() - 0.5) * 46,
-      FC_Y + (Math.random() - 0.5) * 20,
+      SPAWN_X + (Math.random() - 0.5) * 40,
+      SPAWN_Y + (Math.random() - 0.5) * 22,
     )
     await act(() => room.buy(item.type, p.x, p.y))
   }
@@ -165,7 +170,9 @@ export default function GroupRoom({ me, onSideData }: Props) {
       <Room3D
         items={state?.items ?? []}
         shop={shop}
-        editable={isMyRoom && !busy}
+        // 저장 중(busy)에도 계속 만질 수 있어야 한다. 이동은 화면에 먼저 반영되고
+        // 저장은 뒤에서 진행되므로 여기서 잠그면 괜히 멈칫하는 느낌만 준다.
+        editable={isMyRoom}
         selected={selected}
         onSelect={setSelected}
         onMove={(id, x, y) => act(() => room.move(id, x, y))}
@@ -248,20 +255,54 @@ function Room3D({
   const areaRef = useRef<HTMLDivElement>(null)
   // 끄는 동안에는 서버 응답을 기다리지 않고 화면에서 바로 따라 움직인다
   const [drag, setDrag] = useState<{ id: string; x: number; y: number; moved: boolean } | null>(null)
+  // 끌어다 놓은 뒤 확인/취소를 기다리는 상태 (원래 자리를 기억해 뒀다가 취소 시 되돌린다)
+  const [pending, setPending] = useState<{ id: string; x: number; y: number; fromX: number; fromY: number } | null>(null)
+  // 서버 응답을 기다리는 동안에도 화면은 새 자리를 유지하게 해 주는 값(이동 후 지연 방지)
+  const [localPos, setLocalPos] = useState<Record<string, { x: number; y: number }>>({})
+
+  // 서버가 새 좌표를 돌려줬거나 아이템이 사라지면 임시 좌표를 정리한다
+  useEffect(() => {
+    setLocalPos((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const id of Object.keys(prev)) {
+        const it = items.find((i) => i.id === id)
+        if (!it) {
+          delete next[id]
+          changed = true
+        } else if (Math.abs(Number(it.x) - prev[id].x) < 0.06 && Math.abs(Number(it.y) - prev[id].y) < 0.06) {
+          delete next[id]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [items])
 
   const emojiOf = (type: string) => shop.find((s) => s.type === type)?.emoji || '❓'
 
+  /** 아이템을 지금 어디에 그려야 하는가 (끄는 중 → 확인 대기 → 임시 좌표 → 서버 값) */
+  function posOf(it: RoomState['items'][number]) {
+    if (drag?.id === it.id) return { x: drag.x, y: drag.y }
+    if (pending?.id === it.id) return { x: pending.x, y: pending.y }
+    const local = localPos[it.id]
+    if (local) return local
+    // 저장된 값이 무엇이든(예: 마이그레이션 전 격자 좌표) 항상 바닥 위에 그린다
+    return clampToFloor(Number(it.x), Number(it.y))
+  }
+
   function pointOf(e: React.PointerEvent) {
     const r = areaRef.current?.getBoundingClientRect()
-    if (!r) return { x: FC_X, y: FC_Y }
+    if (!r) return { x: SPAWN_X, y: SPAWN_Y }
     return clampToFloor(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100)
   }
 
-  function onPointerDown(e: React.PointerEvent, item: RoomState['items'][number]) {
+  function onPointerDown(e: React.PointerEvent, it: RoomState['items'][number]) {
     if (!editable) return
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    setDrag({ id: item.id, x: Number(item.x), y: Number(item.y), moved: false })
+    const from = pending?.id === it.id ? { x: pending.fromX, y: pending.fromY } : posOf(it)
+    setDrag({ id: it.id, x: from.x, y: from.y, moved: false })
   }
   function onPointerMove(e: React.PointerEvent) {
     if (!drag) return
@@ -274,89 +315,120 @@ function Room3D({
     setDrag(null)
     if (d.moved) {
       const p = pointOf(e)
-      onMove(d.id, p.x, p.y)
+      const it = items.find((i) => i.id === d.id)
+      const origin =
+        pending?.id === d.id
+          ? { x: pending.fromX, y: pending.fromY }
+          : it
+            ? clampToFloor(Number(it.x), Number(it.y))
+            : p
+      // 아직 저장하지 않는다 — 확인을 눌러야 저장된다
+      setPending({ id: d.id, x: p.x, y: p.y, fromX: origin.x, fromY: origin.y })
       onSelect(d.id)
     } else {
-      // 끌지 않고 톡 누른 것 = 선택 토글
-      onSelect(selected === d.id ? null : d.id)
+      onSelect(selected === d.id ? null : d.id) // 톡 누르면 선택 토글
     }
   }
 
-  // 각 면의 clip-path (아이소메트릭: 왼쪽벽 / 오른쪽벽 / 바닥)
-  const LEFT_WALL = `polygon(0% ${WALL_TOP_SIDE}%, ${CORNER_X}% ${WALL_TOP_BACK}%, ${CORNER_X}% ${FLOOR_BACK}%, 0% ${FLOOR_SIDE}%)`
-  const RIGHT_WALL = `polygon(${CORNER_X}% ${WALL_TOP_BACK}%, 100% ${WALL_TOP_SIDE}%, 100% ${FLOOR_SIDE}%, ${CORNER_X}% ${FLOOR_BACK}%)`
-  const FLOOR = `polygon(${CORNER_X}% ${FLOOR_BACK}%, 100% ${FLOOR_SIDE}%, ${CORNER_X}% ${FLOOR_FRONT}%, 0% ${FLOOR_SIDE}%)`
+  function confirmMove() {
+    if (!pending) return
+    const p = pending
+    setPending(null)
+    onSelect(null) // 초록 테두리를 없앤다
+    // 화면은 새 자리를 그대로 유지한 채(지연 없음) 저장만 뒤에서 진행된다
+    setLocalPos((prev) => ({ ...prev, [p.id]: { x: p.x, y: p.y } }))
+    onMove(p.id, p.x, p.y)
+  }
+  function cancelMove() {
+    if (!pending) return
+    setPending(null)
+    onSelect(null)
+  }
+
+  // 각 면의 clip-path — 정면 벽을 가운데 두고 네 사다리꼴이 화면 모서리로 뻗는다
+  const BACK_WALL = `polygon(${BACK_L}% ${BACK_T}%, ${BACK_R}% ${BACK_T}%, ${BACK_R}% ${BACK_B}%, ${BACK_L}% ${BACK_B}%)`
+  const CEILING = `polygon(0% 0%, 100% 0%, ${BACK_R}% ${BACK_T}%, ${BACK_L}% ${BACK_T}%)`
+  const FLOOR = `polygon(${BACK_L}% ${BACK_B}%, ${BACK_R}% ${BACK_B}%, 100% 100%, 0% 100%)`
+  const LEFT_WALL = `polygon(0% 0%, ${BACK_L}% ${BACK_T}%, ${BACK_L}% ${BACK_B}%, 0% 100%)`
+  const RIGHT_WALL = `polygon(100% 0%, 100% 100%, ${BACK_R}% ${BACK_B}%, ${BACK_R}% ${BACK_T}%)`
 
   return (
-    <div className="card p-2 overflow-hidden">
-      <div
-        ref={areaRef}
-        className="relative w-full max-w-[520px] mx-auto select-none"
-        style={{ aspectRatio: '4 / 3' }}
-      >
-        {/* 왼쪽 벽 — 빛을 받는 쪽이라 더 밝게 */}
+    <div className="card p-0 overflow-hidden">
+      <div ref={areaRef} className="relative w-full select-none" style={{ aspectRatio: '16 / 10' }}>
+        {/* 천장 — 가장 밝다 */}
+        <div
+          className="absolute inset-0"
+          style={{ clipPath: CEILING, background: 'linear-gradient(180deg, #fffdfe 0%, #f7edf2 100%)' }}
+        />
+        {/* 왼쪽 벽 — 빛을 받는 쪽 */}
         <div
           className="absolute inset-0"
           style={{
             clipPath: LEFT_WALL,
             background:
-              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.7) 1.5px, transparent 1.6px) 0 0/14px 14px, linear-gradient(120deg, #fdf6f8 0%, #f6e7ee 100%)',
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.75) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(90deg, #f3e2ea 0%, #fbf2f6 100%)',
           }}
         />
-        {/* 오른쪽 벽 — 그늘진 쪽이라 한 톤 어둡게 (두 벽이 확실히 구분된다) */}
+        {/* 오른쪽 벽 — 그늘진 쪽이라 한 톤 어둡게 (좌우가 확실히 구분된다) */}
         <div
           className="absolute inset-0"
           style={{
             clipPath: RIGHT_WALL,
             background:
-              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.5) 1.5px, transparent 1.6px) 0 0/14px 14px, linear-gradient(60deg, #efdde6 0%, #e3cdda 100%)',
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.5) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(90deg, #e6cfdb 0%, #dcc3d2 100%)',
           }}
         />
-        {/* 모서리 선 — 두 벽이 만나는 세로선 */}
-        <div
-          className="absolute"
-          style={{
-            left: `${CORNER_X}%`,
-            top: `${WALL_TOP_BACK}%`,
-            height: `${FLOOR_BACK - WALL_TOP_BACK}%`,
-            width: 1,
-            background: 'rgba(148,120,140,.28)',
-          }}
-        />
-        {/* 굽도리(벽과 바닥이 만나는 띠) */}
+        {/* 정면 벽 — 창문·액자를 걸 수 있는 면 */}
         <div
           className="absolute inset-0"
           style={{
-            clipPath: `polygon(0% ${FLOOR_SIDE - 2.2}%, ${CORNER_X}% ${FLOOR_BACK - 2.2}%, 100% ${FLOOR_SIDE - 2.2}%, 100% ${FLOOR_SIDE}%, ${CORNER_X}% ${FLOOR_BACK}%, 0% ${FLOOR_SIDE}%)`,
-            background: '#d9bfcd',
+            clipPath: BACK_WALL,
+            background:
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.7) 1.5px, transparent 1.6px) 0 0/15px 15px, linear-gradient(180deg, #fbf1f5 0%, #f2e2ea 100%)',
           }}
         />
         {/* 바닥 */}
         <div
           className="absolute inset-0"
-          style={{
-            clipPath: FLOOR,
-            background: 'linear-gradient(180deg, #f2dfe6 0%, #ecd2dd 55%, #e4c5d3 100%)',
-          }}
+          style={{ clipPath: FLOOR, background: 'linear-gradient(180deg, #ecd8e1 0%, #e7cddb 55%, #dfc2d1 100%)' }}
         />
-        {/* 바닥 타일 — 마름모의 두 변과 나란한 선을 겹쳐 마름모 격자를 만든다.
-            각도는 바닥 변의 기울기에서 나온다: 변은 가로로 50%, 세로로 16% 이동하고
-            공간 비율이 4:3 이므로 atan(0.16*0.75 / 0.5) ≈ 13.5°.
-            CSS 각도는 "위"가 0°라, 가로에 가까운 줄무늬는 13.5° / -13.5° 가 된다. */}
+        {/* 바닥 타일 — 안쪽으로 모이는 세로선 + 멀수록 촘촘해지는 가로선이 심도를 만든다.
+            preserveAspectRatio="none" 로 비율 좌표를 그대로 쓰고,
+            non-scaling-stroke 로 선 두께만 일정하게 유지한다. */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          style={{ clipPath: FLOOR }}
+        >
+          <g stroke="rgba(255,255,255,.7)" strokeWidth={1} vectorEffect="non-scaling-stroke">
+            {FLOOR_COLS.map((f, i) => (
+              <line
+                key={`v${i}`}
+                x1={BACK_L + (BACK_R - BACK_L) * f}
+                y1={BACK_B}
+                x2={100 * f}
+                y2={100}
+              />
+            ))}
+            {FLOOR_ROWS.map((t, i) => {
+              const y = BACK_B + (100 - BACK_B) * t
+              return <line key={`h${i}`} x1={BACK_L * (1 - t)} y1={y} x2={BACK_R + (100 - BACK_R) * t} y2={y} />
+            })}
+          </g>
+        </svg>
+        {/* 굽도리 — 벽과 바닥이 만나는 선 */}
         <div
-          className="absolute inset-0 opacity-50"
+          className="absolute inset-0"
           style={{
-            clipPath: FLOOR,
-            background:
-              'repeating-linear-gradient(13.5deg, rgba(255,255,255,.8) 0 1px, transparent 1px 26px), repeating-linear-gradient(-13.5deg, rgba(255,255,255,.8) 0 1px, transparent 1px 26px)',
+            clipPath: `polygon(0% 100%, ${BACK_L}% ${BACK_B}%, ${BACK_R}% ${BACK_B}%, 100% 100%, 100% 98.6%, ${BACK_R}% ${BACK_B - 1.4}%, ${BACK_L}% ${BACK_B - 1.4}%, 0% 98.6%)`,
+            background: 'rgba(190,150,172,.55)',
           }}
         />
 
         {/* 아이템 (앞쪽에 있을수록 크고 위에 그린다) */}
         {items.map((it) => {
-          // 저장된 값이 무엇이든(예: 마이그레이션 전 격자 좌표) 항상 바닥 위에 그린다
-          const live =
-            drag && drag.id === it.id ? drag : clampToFloor(Number(it.x), Number(it.y))
+          const live = posOf(it)
           const s = depthScale(live.y)
           const isSel = selected === it.id
           const dragging = drag?.id === it.id
@@ -375,35 +447,39 @@ function Room3D({
                 transform: `translate(-50%, -100%) scale(${s})`,
                 transformOrigin: 'bottom center',
                 zIndex: Math.round(live.y * 10),
-                transition: dragging ? 'none' : 'left .18s ease, top .18s ease',
                 filter: dragging ? 'drop-shadow(0 10px 8px rgba(0,0,0,.25))' : 'none',
               }}
               title={shop.find((sh) => sh.type === it.item_type)?.name || it.item_type}
             >
-              <span className="block text-3xl leading-none">{emojiOf(it.item_type)}</span>
+              <span className="block text-4xl leading-none">{emojiOf(it.item_type)}</span>
               {/* 바닥 그림자 */}
               <span
                 className="block mx-auto rounded-[50%]"
-                style={{
-                  width: 22,
-                  height: 6,
-                  marginTop: -3,
-                  background: 'rgba(15,23,42,.18)',
-                  filter: 'blur(2px)',
-                }}
+                style={{ width: 26, height: 7, marginTop: -4, background: 'rgba(15,23,42,.18)', filter: 'blur(2px)' }}
               />
-              {isSel && (
-                <span className="absolute -inset-1 rounded-xl ring-2 ring-emerald-500 pointer-events-none" />
-              )}
+              {isSel && <span className="absolute -inset-1 rounded-xl ring-2 ring-emerald-500 pointer-events-none" />}
             </button>
           )
         })}
 
-        {items.length === 0 && (
-          <p
-            className="absolute inset-x-0 text-center text-sm text-slate-500/80"
-            style={{ top: `${FC_Y}%` }}
+        {/* 이동 확인 — 확인을 누르면 저장되고 초록 테두리가 사라진다 */}
+        {pending && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 bottom-2 z-[2000] flex items-center gap-2 bg-white/95 backdrop-blur rounded-full shadow-lg px-2 py-1.5"
+            style={{ pointerEvents: 'auto' }}
           >
+            <span className="text-xs text-slate-500 pl-2">여기에 놓을까요?</span>
+            <button onClick={cancelMove} className="h-9 px-3 rounded-full bg-slate-200 text-slate-700 text-sm font-bold">
+              취소
+            </button>
+            <button onClick={confirmMove} className="h-9 px-4 rounded-full bg-emerald-600 text-white text-sm font-bold">
+              확인
+            </button>
+          </div>
+        )}
+
+        {items.length === 0 && (
+          <p className="absolute inset-x-0 text-center text-sm text-slate-500/80" style={{ top: `${SPAWN_Y}%` }}>
             상점에서 아이템을 사서 공간을 꾸며보세요.
           </p>
         )}
