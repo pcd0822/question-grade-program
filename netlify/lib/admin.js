@@ -233,6 +233,12 @@ export function isMissingFunction(error) {
   return error?.code === 'PGRST202' || error?.code === '42883'
 }
 
+/** 테이블/컬럼이 아직 없는 경우(마이그레이션 미적용)인지 판별 */
+export function isMissingTable(error) {
+  // PGRST205 = 스키마 캐시에 테이블 없음, 42P01 = undefined_table, 42703 = undefined_column
+  return error?.code === 'PGRST205' || error?.code === '42P01' || error?.code === '42703'
+}
+
 /** plpgsql 이 raise 한 사용자 예외 이름 추출 (예: 'insufficient_seeds') */
 export function pgErrorName(error) {
   return String(error?.message || '').trim()

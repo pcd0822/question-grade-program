@@ -29,7 +29,18 @@ interface Props {
   children: ReactNode
   /** 메인 콘텐츠 최대 너비 (tailwind max-w-* 클래스) */
   maxWidth?: string
+  /** 우측 배너 내용(배지·랭킹 등). 주면 우측 상단에 열고 닫는 버튼이 생긴다. */
+  rightPanel?: ReactNode
+  /** 우측 배너 버튼에 쓸 아이콘 */
+  rightIcon?: string
+  /** 상단 바 좌측 제목 옆에 덧붙일 요소(예: 뒤로 가기 버튼) */
+  topLeftExtra?: ReactNode
+  /** 상단 바 제목을 직접 지정(기본값: 현재 탭 이름) */
+  title?: string
 }
+
+const SIDEBAR_W = 256
+const RIGHT_W = 288
 
 export default function AppShell({
   brandTitle,
@@ -41,15 +52,25 @@ export default function AppShell({
   onLogout,
   children,
   maxWidth = 'max-w-4xl',
+  rightPanel,
+  rightIcon = '🏅',
+  topLeftExtra,
+  title,
 }: Props) {
   // 창 크기를 렌더 중에 직접 읽으면 회전·창 크기 변경에 반응하지 못한다.
   // 데스크톱 여부를 상태로 두고 resize 를 구독한다.
   const isDesktop = useIsDesktop()
   const [open, setOpen] = useState(isDesktop)
+  const [rightOpen, setRightOpen] = useState(isDesktop)
   const currentItem = nav.find((n) => n.key === current)
 
   function select(k: string) {
     onSelect(k)
+    if (!isDesktop) setOpen(false)
+  }
+  function selectRight() {
+    setRightOpen((v) => !v)
+    // 모바일에서는 양쪽이 동시에 열리면 화면을 다 가린다
     if (!isDesktop) setOpen(false)
   }
 
@@ -64,12 +85,29 @@ export default function AppShell({
         >
           <Hamburger open={open} />
         </button>
-        {currentItem && <span className="text-lg">{currentItem.icon}</span>}
-        <h1 className="font-black text-slate-900">{currentItem?.label}</h1>
+        {topLeftExtra}
+        {!topLeftExtra && currentItem && <span className="text-lg">{currentItem.icon}</span>}
+        <h1 className="font-black text-slate-900 truncate">{title ?? currentItem?.label}</h1>
+
+        {/* 우측 배너 열고 닫기 */}
+        {rightPanel && (
+          <button
+            onClick={selectRight}
+            aria-label="배지·랭킹 열고 닫기"
+            className={`touch-target w-11 ml-auto flex items-center justify-center rounded-xl transition-colors ${
+              rightOpen ? 'bg-emerald-50 text-emerald-700' : 'hover:bg-slate-100 active:bg-slate-200'
+            }`}
+          >
+            <span className="text-lg">{rightIcon}</span>
+          </button>
+        )}
       </div>
 
       {/* 백드롭(모바일) */}
       {open && <div className="fixed inset-0 top-14 bg-black/30 z-30 md:hidden" onClick={() => setOpen(false)} />}
+      {rightPanel && rightOpen && (
+        <div className="fixed inset-0 top-14 bg-black/30 z-30 md:hidden" onClick={() => setRightOpen(false)} />
+      )}
 
       {/* 사이드바 (종이접기 폴드) */}
       <div className="fixed top-14 left-0 bottom-0 z-40" style={{ perspective: '1600px', pointerEvents: open ? 'auto' : 'none' }}>
@@ -114,8 +152,34 @@ export default function AppShell({
         </aside>
       </div>
 
+      {/* 우측 배너 (좌측 메뉴와 같은 종이접기 폴드, 방향만 반대) */}
+      {rightPanel && (
+        <div
+          className="fixed top-14 right-0 bottom-0 z-40"
+          style={{ perspective: '1600px', pointerEvents: rightOpen ? 'auto' : 'none' }}
+        >
+          <aside
+            className="h-full w-72 bg-white border-l border-slate-200 shadow-xl overflow-y-auto p-3 space-y-4"
+            style={{
+              transformOrigin: 'right center',
+              transform: rightOpen ? 'rotateY(0deg)' : 'rotateY(92deg)',
+              opacity: rightOpen ? 1 : 0,
+              transition: 'transform .45s cubic-bezier(.22,.61,.36,1), opacity .3s ease',
+            }}
+          >
+            {rightPanel}
+          </aside>
+        </div>
+      )}
+
       {/* 메인 */}
-      <main className="px-4 py-5 transition-[margin] duration-300" style={{ marginLeft: open && isDesktop ? 256 : 0 }}>
+      <main
+        className="px-4 py-5 transition-[margin] duration-300"
+        style={{
+          marginLeft: open && isDesktop ? SIDEBAR_W : 0,
+          marginRight: rightPanel && rightOpen && isDesktop ? RIGHT_W : 0,
+        }}
+      >
         <div className={`${maxWidth} mx-auto`}>{children}</div>
       </main>
     </div>

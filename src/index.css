@@ -19,10 +19,94 @@ body {
   color: #0f172a; /* slate-900 */
 }
 
+/* 페이지 내 이동(질문 작성칸 열기 등)이 부드럽게 */
+html {
+  scroll-behavior: smooth;
+}
+
 /* 터치 타깃 최소 크기 확보용 유틸 */
 .touch-target {
   min-height: 44px;
   min-width: 44px;
+}
+
+/* ── 질문 카드: 호버 시 연두색 파스텔 그라데이션 테두리 + 살짝 떠오르는 질감 ── */
+.q-card {
+  position: relative;
+  transition:
+    transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+/* 테두리 자리에 그라데이션을 깔고, 평소에는 투명하게 숨겨 둔다 */
+.q-card::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 1.05rem;
+  padding: 2px;
+  background: linear-gradient(135deg, #bbf7d0, #86efac 35%, #a7f3d0 65%, #d9f99d);
+  /* 테두리만 남기고 가운데를 도려낸다 */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+.q-card:hover,
+.q-card-open {
+  transform: translateY(-3px);
+  border-color: transparent;
+  box-shadow:
+    0 10px 24px -8px rgba(52, 211, 153, 0.45),
+    0 4px 10px -4px rgba(163, 230, 53, 0.35);
+}
+.q-card:hover::before,
+.q-card-open::before {
+  opacity: 1;
+}
+.q-card:active {
+  transform: translateY(-1px);
+}
+
+/* 수업 카드도 같은 결의 호버 반응 */
+.lesson-card {
+  transition:
+    transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+.lesson-card:hover {
+  transform: translateY(-3px);
+  border-color: #86efac;
+  box-shadow: 0 10px 24px -8px rgba(52, 211, 153, 0.45);
+}
+
+/* 손가락으로 끄는 동안 브라우저 기본 제스처가 끼어들지 않게 */
+.no-touch-scroll {
+  touch-action: none;
+}
+
+/* 움직임을 줄이도록 설정한 기기에서는 들썩임을 뺀다 */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .q-card,
+  .lesson-card {
+    transition: none;
+  }
+  .q-card:hover,
+  .q-card-open,
+  .lesson-card:hover {
+    transform: none;
+  }
 }
 
 /* ── 공통 컴포넌트 클래스 (교실 모바일: 넉넉한 터치 타깃) ── */

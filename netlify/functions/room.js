@@ -52,28 +52,24 @@ async function roomState(groupId) {
   }
 }
 
-function firstFreeCell(items) {
-  const taken = new Set(items.map((i) => `${i.x},${i.y}`))
-  for (let y = 0; y < GRID_ROWS; y++)
-    for (let x = 0; x < GRID_COLS; x++) if (!taken.has(`${x},${y}`)) return { x, y }
-  return null
+/** 공간 내 위치를 0~100(%) 범위로 정리. 값이 이상하면 기본값을 쓴다. */
+function clampPct(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.round(Math.min(100, Math.max(0, n)) * 100) / 100
 }
 
 /**
- * 006 미적용 환경용 구매 폴백. 실패 사유 문자열을 반환하고, 성공하면 null.
+ * 009 미적용 환경용 구매 폴백. 실패 사유 문자열을 반환하고, 성공하면 null.
  * 경합에 취약하므로(동시 구매 시 차감 유실) 마이그레이션을 꼭 실행할 것.
  */
-async function buyFallback(groupId, itemType, price) {
+async function buyFallback(groupId, itemType, price, x, y) {
   const { wallet } = await groupWallet(groupId)
   if (wallet < price) return `보유 새싹이 부족해요. (필요 ${price}, 보유 ${wallet})`
 
-  const { data: items } = await admin.from('room_items').select('x, y').eq('group_id', groupId)
-  const cell = firstFreeCell(items || [])
-  if (!cell) return '공간이 가득 찼어요.'
-
   const { data: g } = await admin.from('groups').select('spent_seeds').eq('id', groupId).maybeSingle()
   await admin.from('groups').update({ spent_seeds: (g?.spent_seeds || 0) + price }).eq('id', groupId)
-  await admin.from('room_items').insert({ group_id: groupId, item_type: itemType, x: cell.x, y: cell.y })
+  await admin.from('room_items').insert({ group_id: groupId, item_type: itemType, x, y })
   return null
 }
 
@@ -104,16 +100,20 @@ export async function handler(event) {
         const price = priceOf(body.itemType)
         if (price == null) return json(400, { error: '없는 아이템입니다.' })
 
+        // 놓을 위치(공간 내 비율 0~100). 안 주면 바닥 가운데쯤에 놓인다.
+        const bx = clampPct(body.x, 50)
+        const by = clampPct(body.y, 72)
+
         const { error } = await admin.rpc('room_buy', {
           p_group: me.group_id,
           p_item: body.itemType,
           p_price: price,
-          p_cols: GRID_COLS,
-          p_rows: GRID_ROWS,
+          p_x: bx,
+          p_y: by,
         })
         if (error) {
           if (isMissingFunction(error)) {
-            const fb = await buyFallback(me.group_id, body.itemType, price)
+            const fb = await buyFallback(me.group_id, body.itemType, price, bx, by)
             if (fb) return json(400, { error: fb })
             return json(200, await roomState(me.group_id))
           }
@@ -135,21 +135,10 @@ export async function handler(event) {
         const { data: item } = await admin.from('room_items').select('*').eq('id', body.itemId).maybeSingle()
         if (!item) return json(404, { error: '아이템을 찾을 수 없습니다.' })
         if (item.group_id !== me.group_id) return json(403, { error: '우리 모둠 공간만 꾸밀 수 있어요.' })
-        const x = Math.max(0, Math.min(GRID_COLS - 1, +body.x))
-        const y = Math.max(0, Math.min(GRID_ROWS - 1, +body.y))
-        // 이미 다른 아이템이 있는 칸이면 무시
-        const { data: occ } = await admin
-          .from('room_items')
-          .select('id')
-          .eq('group_id', me.group_id)
-          .eq('x', x)
-          .eq('y', y)
-          .neq('id', item.id)
-          .maybeSingle()
-        if (occ) return json(400, { error: '이미 아이템이 있는 칸이에요.' })
+        // 자유 배치: 공간 내 비율(0~100). 겹쳐 놓는 것도 허용한다.
+        const x = clampPct(body.x, item.x)
+        const y = clampPct(body.y, item.y)
         const { error: mvErr } = await admin.from('room_items').update({ x, y }).eq('id', item.id)
-        // 23505 = 확인과 이동 사이에 다른 모둠원이 그 칸을 차지한 경우(유니크 제약, 006)
-        if (mvErr && mvErr.code === '23505') return json(400, { error: '이미 아이템이 있는 칸이에요.' })
         if (mvErr) throw mvErr
         return json(200, await roomState(me.group_id))
       }

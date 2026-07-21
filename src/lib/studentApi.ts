@@ -47,6 +47,11 @@ export const student = {
   },
 
   ranking: () => callFn<{ ranking: RankingRow[]; classTotal: number }>('ranking', {}),
+
+  // 모둠 채팅
+  sendChat: (text: string) => callFn('student-actions', { action: 'send-chat', ...creds(), text }),
+  deleteChat: (messageId: string) =>
+    callFn('student-actions', { action: 'delete-chat', ...creds(), messageId }),
 }
 
 // ── 모둠 공간 ──
@@ -56,12 +61,24 @@ export interface ShopItem {
   emoji: string
   price: number
 }
+/** 모둠 공간 아이템. x·y 는 격자 칸이 아니라 공간 내 비율(0~100). */
 export interface RoomItemT {
   id: string
   group_id: string
   item_type: string
   x: number
   y: number
+}
+
+/** 모둠 채팅 메시지 */
+export interface ChatMessage {
+  id: string
+  group_id: string
+  student_id: string | null
+  author_name: string
+  author_avatar_url: string | null
+  text: string
+  created_at: string
 }
 export interface RoomBadge {
   id: string
@@ -87,7 +104,9 @@ export const room = {
   catalog: () => callFn<{ shop: ShopItem[]; cols: number; rows: number }>('room', { action: 'catalog' }),
   // 모둠원 실명이 담기므로 서버가 학생 인증을 요구한다.
   state: (groupId: string) => callFn<RoomState>('room', { action: 'state', ...creds(), groupId }),
-  buy: (itemType: string) => callFn<RoomState>('room', { action: 'buy', ...creds(), itemType }),
+  // x·y 는 공간 내 비율(0~100). 생략하면 바닥 가운데쯤에 놓인다.
+  buy: (itemType: string, x?: number, y?: number) =>
+    callFn<RoomState>('room', { action: 'buy', ...creds(), itemType, x, y }),
   move: (itemId: string, x: number, y: number) =>
     callFn<RoomState>('room', { action: 'move', ...creds(), itemId, x, y }),
   remove: (itemId: string) => callFn<RoomState>('room', { action: 'remove', ...creds(), itemId }),

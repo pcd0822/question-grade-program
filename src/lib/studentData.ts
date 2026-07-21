@@ -1,6 +1,7 @@
 // 학생 화면용 읽기 (anon Supabase). 질문은 익명, 댓글은 실명(비정규화된 이름/아바타).
 import { supabase } from './supabase'
 import type { Badge, Comment, Lesson, Question, Submission } from '../types'
+import type { ChatMessage } from './studentApi'
 
 /** 내가 받은 배지 */
 export async function fetchMyBadges(studentId: string): Promise<Badge[]> {
@@ -25,6 +26,17 @@ export async function fetchActiveLessons(): Promise<Lesson[]> {
 export async function fetchMySeeds(studentId: string): Promise<number> {
   const { data } = await supabase.from('seed_log').select('amount').eq('student_id', studentId)
   return (data || []).reduce((sum, r) => sum + (r.amount as number), 0)
+}
+
+/** 모둠 채팅 읽기 (최근 200개). 쓰기는 서버 함수를 통한다. */
+export async function fetchGroupChat(groupId: string) {
+  const { data } = await supabase
+    .from('group_chat')
+    .select('*')
+    .eq('group_id', groupId)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  return ((data as ChatMessage[]) || []).slice().reverse()
 }
 
 export interface QuestionView {

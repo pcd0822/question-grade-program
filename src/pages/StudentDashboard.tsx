@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Badge, Lesson, StudentSession } from '../types'
 import { fetchActiveLessons, fetchMyBadges, fetchMySeeds } from '../lib/studentData'
-import { student, type RankingRow } from '../lib/studentApi'
+import { student, type RankingRow, type RoomBadge, type RoomMember } from '../lib/studentApi'
 import { compressToSquare } from '../lib/imageCompress'
 import { STAGE_LABEL } from '../types'
 import { useRealtime } from '../hooks/useRealtime'
@@ -22,6 +22,13 @@ const NAV: NavItem[] = [
   { key: 'settings', label: '개인설정', icon: '⚙️' },
 ]
 
+/** 모둠 공간이 우측 배너에 띄우는 정보 */
+export interface RoomSideData {
+  groupName: string
+  members: RoomMember[]
+  badges: RoomBadge[]
+}
+
 export default function StudentDashboard({ student: me, onLogout, onProfileChange }: Props) {
   const [tab, setTab] = useState('home')
   const [lessons, setLessons] = useState<Lesson[]>([])
@@ -29,6 +36,7 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
   const [ranking, setRanking] = useState<RankingRow[]>([])
   const [badges, setBadges] = useState<Badge[]>([])
   const [active, setActive] = useState<Lesson | null>(null)
+  const [roomSide, setRoomSide] = useState<RoomSideData | null>(null)
 
   const load = useCallback(() => {
     fetchActiveLessons().then(setLessons)
@@ -43,10 +51,22 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
   }, [load])
   useRealtime(['lessons', 'seed_log', 'groups', 'students', 'student_badges'], load)
 
-  // 수업 입장 시 전체화면 리딩뷰
-  if (active) {
-    return <LessonRoom lesson={active} me={me} onBack={() => { setActive(null); load() }} />
+  function goTab(key: string) {
+    setActive(null) // 수업에서 나가기
+    setTab(key)
   }
+  function backToList() {
+    setActive(null)
+    load()
+  }
+
+  // 우측 배너: 모둠 공간에서는 모둠원·모둠 배지, 그 외에는 내 배지·모둠 랭킹
+  const rightPanel =
+    tab === 'room' ? (
+      <RoomSidePanel data={roomSide} />
+    ) : (
+      <HomeSidePanel me={me} seeds={seeds} badges={badges} ranking={ranking} />
+    )
 
   return (
     <AppShell
@@ -55,47 +75,64 @@ export default function StudentDashboard({ student: me, onLogout, onProfileChang
       brandAvatar={<Avatar name={me.name} src={me.avatar_url} size={36} />}
       nav={NAV}
       current={tab}
-      onSelect={setTab}
+      onSelect={goTab}
       onLogout={onLogout}
-      maxWidth="max-w-3xl"
+      maxWidth={tab === 'room' ? 'max-w-5xl' : 'max-w-3xl'}
+      title={active ? active.title : undefined}
+      topLeftExtra={
+        active ? (
+          <button
+            onClick={backToList}
+            className="flex items-center gap-1 h-9 px-3 rounded-xl bg-emerald-600 text-white text-sm font-bold shadow-sm hover:bg-emerald-700 active:scale-95 transition whitespace-nowrap"
+          >
+            ← 수업 목록
+          </button>
+        ) : undefined
+      }
+      rightPanel={rightPanel}
+      rightIcon={tab === 'room' ? '👥' : '🏅'}
     >
-      {tab === 'home' && <Home me={me} seeds={seeds} ranking={ranking} badges={badges} lessons={lessons} onEnter={setActive} />}
-      {tab === 'room' && <GroupRoom me={me} />}
+      {tab === 'home' &&
+        (active ? (
+          <LessonRoom lesson={active} me={me} />
+        ) : (
+          <Home seeds={seeds} lessons={lessons} onEnter={setActive} />
+        ))}
+      {tab === 'room' && <GroupRoom me={me} onSideData={setRoomSide} />}
       {tab === 'settings' && <StudentSettings me={me} onProfileChange={onProfileChange} />}
     </AppShell>
   )
 }
 
-function Home({
+// ─────────────────────────────────────────────────────────────
+// 우측 배너
+// ─────────────────────────────────────────────────────────────
+
+function HomeSidePanel({
   me,
   seeds,
-  ranking,
   badges,
-  lessons,
-  onEnter,
+  ranking,
 }: {
   me: StudentSession
   seeds: number
-  ranking: RankingRow[]
   badges: Badge[]
-  lessons: Lesson[]
-  onEnter: (l: Lesson) => void
+  ranking: RankingRow[]
 }) {
   return (
-    <div className="space-y-5">
-      {/* 내 새싹 */}
-      <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-5 flex items-center justify-between">
-        <div>
-          <p className="text-emerald-100 text-sm font-bold">내 누적 새싹</p>
-          <p className="text-4xl font-black mt-0.5">🌱 {seeds}</p>
-        </div>
-        <p className="text-right text-emerald-100 text-xs">질문·댓글·하트로<br />새싹을 모아보세요</p>
+    <>
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-4">
+        <p className="text-emerald-100 text-xs font-bold">내 누적 새싹</p>
+        <p className="text-3xl font-black mt-0.5">🌱 {seeds}</p>
       </div>
 
-      {/* 내 배지 */}
-      {badges.length > 0 && (
-        <div>
-          <h2 className="font-bold text-slate-700 mb-2">내 배지 <span className="text-slate-400 font-normal">({badges.length})</span></h2>
+      <section>
+        <h2 className="font-bold text-slate-700 mb-2 px-1">
+          내 배지 <span className="text-slate-400 font-normal">({badges.length})</span>
+        </h2>
+        {badges.length === 0 ? (
+          <p className="text-xs text-slate-400 card py-4 text-center">아직 받은 배지가 없어요.</p>
+        ) : (
           <div className="flex flex-wrap gap-3 card">
             {badges.map((b) => (
               <div key={b.id} className="flex flex-col items-center w-16 text-center" title={b.condition}>
@@ -108,49 +145,133 @@ function Home({
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </section>
 
-      {/* 모둠 랭킹 */}
-      {ranking.length > 0 && (
-        <div>
-          <h2 className="font-bold text-slate-700 mb-2">모둠 랭킹</h2>
+      <section>
+        <h2 className="font-bold text-slate-700 mb-2 px-1">모둠 랭킹</h2>
+        {ranking.length === 0 ? (
+          <p className="text-xs text-slate-400 card py-4 text-center">아직 모둠이 없어요.</p>
+        ) : (
           <ul className="space-y-1.5">
             {ranking.map((g, i) => {
               const mine = g.id === me.group_id
               return (
-                <li key={g.id} className={`card flex items-center gap-3 ${mine ? 'border-emerald-300 bg-emerald-50/50' : ''}`}>
-                  <span className="text-lg w-7 text-center">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
-                  <span className="flex-1 font-bold text-slate-800">
-                    {g.name} {mine && <span className="text-xs text-emerald-600">(우리 모둠)</span>}
+                <li
+                  key={g.id}
+                  className={`card flex items-center gap-2 py-2.5 ${mine ? 'border-emerald-300 bg-emerald-50/50' : ''}`}
+                >
+                  <span className="text-base w-6 text-center">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
+                  <span className="flex-1 font-bold text-slate-800 text-sm truncate">
+                    {g.name} {mine && <span className="text-[11px] text-emerald-600">(우리)</span>}
                   </span>
-                  <span className="text-emerald-600 font-black">🌱 {g.cumulative_seeds}</span>
+                  <span className="text-emerald-600 font-black text-sm whitespace-nowrap">🌱 {g.cumulative_seeds}</span>
                 </li>
               )
             })}
           </ul>
-        </div>
-      )}
+        )}
+      </section>
+    </>
+  )
+}
 
-      {/* 수업 목록 */}
+function RoomSidePanel({ data }: { data: RoomSideData | null }) {
+  if (!data) return <p className="text-xs text-slate-400 card py-6 text-center">모둠 정보를 불러오는 중…</p>
+  return (
+    <>
+      <section>
+        <h2 className="font-bold text-slate-700 mb-2 px-1">
+          모둠원 <span className="text-slate-400 font-normal">({data.members.length})</span>
+        </h2>
+        {data.members.length === 0 ? (
+          <p className="text-xs text-slate-400 card py-4 text-center">모둠원이 없어요.</p>
+        ) : (
+          <div className="card flex flex-col gap-2">
+            {data.members.map((m) => (
+              <div key={m.id} className="flex items-center gap-2">
+                <Avatar name={m.name} src={m.avatar_url} size={28} />
+                <span className="text-sm text-slate-700">{m.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="font-bold text-slate-700 mb-2 px-1">🏅 모둠 배지</h2>
+        {data.badges.length === 0 ? (
+          <p className="text-xs text-slate-400 card py-4 text-center">아직 받은 배지가 없어요.</p>
+        ) : (
+          <div className="flex flex-wrap gap-3 card">
+            {data.badges.map((b, i) => (
+              <div key={b.id + i} className="flex flex-col items-center w-16 text-center">
+                {b.image_url ? (
+                  <img src={b.image_url} alt={b.name} className="w-12 h-12 rounded-xl object-cover border border-slate-200" />
+                ) : (
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-xl">🏅</div>
+                )}
+                <span className="text-[11px] text-slate-600 mt-1 leading-tight truncate w-full">{b.name}</span>
+                <span className="text-[10px] text-slate-400 truncate w-full">{b.student_name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// 홈 (수업 목록 — 가로 카드뷰)
+// ─────────────────────────────────────────────────────────────
+
+function Home({
+  seeds,
+  lessons,
+  onEnter,
+}: {
+  seeds: number
+  lessons: Lesson[]
+  onEnter: (l: Lesson) => void
+}) {
+  return (
+    <div className="space-y-5">
+      {/* 내 새싹 (배너를 닫아도 보이도록 본문에도 둔다) */}
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-5 flex items-center justify-between">
+        <div>
+          <p className="text-emerald-100 text-sm font-bold">내 누적 새싹</p>
+          <p className="text-4xl font-black mt-0.5">🌱 {seeds}</p>
+        </div>
+        <p className="text-right text-emerald-100 text-xs">
+          질문·댓글·하트로
+          <br />
+          새싹을 모아보세요
+        </p>
+      </div>
+
       <div>
         <h2 className="font-bold text-slate-700 mb-2">수업 목록</h2>
         {lessons.length === 0 ? (
           <p className="text-slate-400 text-sm py-8 text-center card">아직 열린 수업이 없어요.</p>
         ) : (
-          <ul className="space-y-2">
+          // 가로 카드뷰 — 좌우로 밀어 넘긴다
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
             {lessons.map((l) => (
-              <li key={l.id}>
-                <button onClick={() => onEnter(l)} className="w-full text-left card hover:border-emerald-300 transition-colors">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {l.period_label && <span className="text-xs text-slate-400">{l.period_label}</span>}
-                    <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">{STAGE_LABEL[l.stage]}</span>
-                  </div>
-                  <p className="font-bold text-slate-800 mt-1">{l.title}</p>
-                </button>
-              </li>
+              <button
+                key={l.id}
+                onClick={() => onEnter(l)}
+                className="lesson-card snap-start shrink-0 w-56 sm:w-60 text-left card flex flex-col gap-2"
+              >
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {l.period_label && <span className="text-xs text-slate-400">{l.period_label}</span>}
+                  <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">{STAGE_LABEL[l.stage]}</span>
+                </div>
+                <p className="font-bold text-slate-800 leading-snug line-clamp-3">{l.title}</p>
+                <span className="mt-auto text-xs font-bold text-emerald-600">들어가기 →</span>
+              </button>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </div>
@@ -189,9 +310,13 @@ function StudentSettings({ me, onProfileChange }: { me: StudentSession; onProfil
         </button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
         <div>
-          <p className="text-sm text-slate-600 font-medium">{me.name} · {me.student_no}</p>
+          <p className="text-sm text-slate-600 font-medium">
+            {me.name} · {me.student_no}
+          </p>
           <p className="text-xs text-slate-400">댓글에 이 사진과 이름이 함께 표시됩니다.</p>
-          <button onClick={() => fileRef.current?.click()} className="btn-secondary text-sm mt-2">사진 업로드</button>
+          <button onClick={() => fileRef.current?.click()} className="btn-secondary text-sm mt-2">
+            사진 업로드
+          </button>
         </div>
       </div>
     </section>

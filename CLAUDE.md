@@ -88,8 +88,9 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 4. `migrations/004_settings.sql` — app_settings(교사 프로필 등 전역 키-값). 없어도 나머지는 graceful 동작(교사 프로필 사진 저장만 비활성).
 5. `migrations/005_anonymity.sql` — **익명성 강화.** students.qid(공개용 식별자) + questions.author_qid 추가·백필, **anon 에게서 questions.author_id SELECT 권한 회수**, 죽은 cumulative_seeds 컬럼 2개 제거.
 6. `migrations/006_concurrency.sql` — **동시 접속(30명) 안정화.** 유니크 제약 3종 + DB 함수 `seed_totals` / `set_seed` / `toggle_heart` / `room_buy` / `room_sell`.
-7. `migrations/007_drop_answers.sql` — (선택) 죽은 answers 테이블·publication 정리.
+7. `migrations/007_drop_answers.sql` — (선택) 죽은 answers 테이블·publication 정리. **아직 적용되지 않았다** — 008 의 재시도까지 실패했고, answers 테이블은 그대로 남아 있다. 기능에는 지장이 없다.
 8. `migrations/008_fix_column_grants.sql` — **005·007 실패분 수정.** 반드시 실행해야 익명성이 실제로 적용된다.
+9. `migrations/009_room_free_and_chat.sql` — 모둠 공간 **자유 배치**(x·y 를 격자 정수 → 공간 내 비율 numeric 0~100, 칸 유니크 해제, `room_buy` 시그니처 교체) + **모둠 채팅**(`group_chat` 테이블·RLS·Realtime).
 
 ⚠ **컬럼 단위 REVOKE 는 테이블 단위 GRANT 를 깎아내지 못한다.** 005 의 `revoke select (author_id) ... from anon` 은 anon 이 테이블 전체 SELECT 권한을 갖고 있어 **조용히 무시됐다**(실행은 성공하는데 효과가 없음). 컬럼을 가리려면 008 처럼 **테이블 SELECT 를 회수한 뒤 필요한 컬럼만 다시 grant** 해야 한다. 앞으로 `questions` 에 컬럼을 추가하면 anon 에게 보여줄지 판단해 008 의 grant 목록에 직접 넣어야 한다(자동으로 보이지 않는다).
 
@@ -145,6 +146,10 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 
 ### UI 관례
 - 교사·학생 대시보드는 **AppShell로 통일**(같은 사이드바·폴드).
+- `AppShell`은 **좌측 메뉴 + 우측 배너** 두 개를 갖는다. 우측 배너(`rightPanel`)는 좌측과 같은 종이접기 폴드를 방향만 반대로 쓴다. 학생 화면에서는 홈·수업에서 **내 배지·모둠 랭킹**, 모둠 공간에서 **모둠원·모둠 배지**를 띄운다. 모둠 공간의 정보는 `GroupRoom`이 `onSideData`로 부모에 올려 보내고 `StudentDashboard`가 그린다.
+- **학생은 수업에 들어가도 AppShell 안에 머문다**(메뉴·우측 배너 유지). 수업 목록으로 돌아가는 버튼은 `LessonRoom` 안이 아니라 **상단 바(`topLeftExtra`)의 초록 버튼**이다.
+- 수업 목록은 **가로 스크롤 카드뷰**. 질문 카드·수업 카드는 호버 시 연두 파스텔 그라데이션 테두리 + 살짝 떠오르는 질감(`.q-card`, `.lesson-card` — `src/index.css`). `prefers-reduced-motion`에서는 움직임을 뺀다.
+- 새 질문 만들기 버튼은 **화면 하단 고정 하나만** 둔다(예전에 위·아래 두 개가 있었다). 누르면 작성칸이 열리며 그 위치로 부드럽게 스크롤된다.
 - 하트·댓글은 이모지 대신 **`components/icons`의 라인 SVG**.
 - 교사 수업 선택은 드롭다운이 아니라 **상단 수업 버튼 필터**.
 - 학생 질문은 **카드뷰(하트·댓글 수만) → 탭하면 아래로 댓글 펼침**.
@@ -157,7 +162,8 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 - **댓글이 답변을 대체**: 질문(익명) 아래 인스타식 실명 댓글. 교사가 좋은 댓글에 새싹 2 지급/반려(피드백), 학생은 반려 시 수정 가능.
 - **하트**: 다른 학생 질문에 1인 1회 → 질문 작성자에게 보너스 새싹(상한까지).
 - **모둠**: 교사가 학생을 모둠에 배정. 개별→모둠→학급 새싹 집계·랭킹.
-- **모둠 공간**(`GroupRoom` + `room.js`): 보유 새싹(지갑)으로 상점 아이템 구매 → 8×5 격자에 배치(탭 이동·판매 환불). 다른 모둠 구경 가능, 우리 모둠만 편집. 모둠 배지 전시.
+- **모둠 공간**(`GroupRoom` + `room.js`): 보유 새싹(지갑)으로 상점 아이템 구매 → **사용자 쪽으로 열린 3D 공간**(뒷벽·우측벽·바닥만 그리고 왼쪽은 트임)에 **드래그 앤 드롭으로 자유 배치**. 좌표는 격자가 아니라 **공간 내 비율(0~100)**이고, `GroupRoom.tsx`의 `clampToFloor()`가 우측벽 경사를 따라 바닥 밖으로 나가지 않게 가둔다. `depthScale()`로 뒤쪽일수록 작게 그려 깊이감을 준다. 구매는 **확인 팝업**(아이템 그림·이름·"구매할래요!")을 거친다. 다른 모둠 구경 가능, 우리 모둠만 편집.
+- **모둠 채팅**(`group_chat`): 우리 모둠에서만 보이고 쓸 수 있다. 댓글과 같은 이유로 이름·아바타를 행에 **비정규화 저장**하며, 프로필 사진을 바꾸면 기존 댓글과 함께 채팅 아바타도 서버에서 갱신한다.
 - **배지**: 교사가 등록(이미지+이름+조건) 후 조건 충족 학생에게 **수동 부여**. 학생 홈(내 배지)·모둠 공간(모둠 배지 전시)에 표시.
 
 ## 환경 변수 (`.env`, git 제외)

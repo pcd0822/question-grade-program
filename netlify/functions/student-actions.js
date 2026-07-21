@@ -1,6 +1,15 @@
 // 학생 쓰기: 질문 등록 / 댓글(작성·수정·삭제) / 하트 토글 / 과제 제출 / 프로필 사진.
 // 모든 요청은 학번+코드로 재검증한다.
-import { admin, json, parseBody, verifyStudent, setSeed, getStudentQid, toggleHeart } from '../lib/admin.js'
+import {
+  admin,
+  json,
+  parseBody,
+  verifyStudent,
+  setSeed,
+  getStudentQid,
+  toggleHeart,
+  isMissingTable,
+} from '../lib/admin.js'
 
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method Not Allowed' })
@@ -106,6 +115,46 @@ export async function handler(event) {
         return json(200, { hearted: r.hearted, heartCount: r.heartCount })
       }
 
+      // ── 모둠 채팅 보내기 (우리 모둠에만) ──
+      // 댓글과 같은 이유로 이름·아바타를 행에 비정규화 저장한다(anon 은 students 를 못 읽음).
+      case 'send-chat': {
+        const text = String(body.text || '').trim()
+        if (!text) return json(400, { error: '메시지를 입력하세요.' })
+        if (text.length > 500) return json(400, { error: '메시지가 너무 길어요(500자 이하).' })
+        if (!me.group_id) return json(400, { error: '모둠에 배정된 후 이용할 수 있어요.' })
+
+        const { data, error } = await admin
+          .from('group_chat')
+          .insert({
+            group_id: me.group_id,
+            student_id: me.id,
+            author_name: me.name,
+            author_avatar_url: me.avatar_url || null,
+            text,
+          })
+          .select('*')
+          .single()
+        if (error) {
+          if (isMissingTable(error))
+            return json(503, { error: '채팅 기능이 아직 준비되지 않았어요. (마이그레이션 009 필요)' })
+          throw error
+        }
+        return json(200, { message: data })
+      }
+
+      // ── 모둠 채팅 삭제 (본인 메시지만) ──
+      case 'delete-chat': {
+        const { data: m } = await admin
+          .from('group_chat')
+          .select('id, student_id')
+          .eq('id', body.messageId)
+          .maybeSingle()
+        if (!m) return json(404, { error: '메시지를 찾을 수 없습니다.' })
+        if (m.student_id !== me.id) return json(403, { error: '본인 메시지만 삭제할 수 있습니다.' })
+        await admin.from('group_chat').delete().eq('id', body.messageId)
+        return json(200, { ok: true })
+      }
+
       // ── 프로필 사진 업로드 (dataURL → Storage → students.avatar_url) ──
       case 'set-avatar': {
         const dataUrl = String(body.dataUrl || '')
@@ -126,8 +175,9 @@ export async function handler(event) {
         const url = `${pub.publicUrl}?v=${Date.now()}`
 
         await admin.from('students').update({ avatar_url: url }).eq('id', me.id)
-        // 이미 남긴 댓글의 아바타도 갱신
+        // 이미 남긴 댓글·채팅의 아바타도 갱신(비정규화 저장이라 따로 고쳐야 한다)
         await admin.from('comments').update({ author_avatar_url: url }).eq('student_id', me.id)
+        await admin.from('group_chat').update({ author_avatar_url: url }).eq('student_id', me.id)
         return json(200, { avatar_url: url })
       }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { STAGE_LABEL, type Comment, type Lesson, type StudentSession } from '../../types'
 import { fetchLessonFeed, type LessonFeed, type QuestionView } from '../../lib/studentData'
 import { student } from '../../lib/studentApi'
@@ -9,12 +9,13 @@ import { HeartIcon, CommentIcon } from '../../components/icons'
 interface Props {
   lesson: Lesson
   me: StudentSession
-  onBack: () => void
 }
 
-export default function LessonRoom({ lesson, me, onBack }: Props) {
+// 수업 목록으로 돌아가는 버튼은 AppShell 상단 바에 있다(StudentDashboard 참고).
+export default function LessonRoom({ lesson, me }: Props) {
   const [feed, setFeed] = useState<LessonFeed>({ questions: [], mySubmission: null })
   const [showComposer, setShowComposer] = useState(false)
+  const composerRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => {
     fetchLessonFeed(lesson.id, me.id, me.qid).then(setFeed)
@@ -25,10 +26,16 @@ export default function LessonRoom({ lesson, me, onBack }: Props) {
   }, [load])
   useRealtime(['questions', 'comments', 'hearts', 'submissions', 'lessons'], load)
 
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-4 pb-24 space-y-4">
-      <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-800">← 수업 목록</button>
+  // 하단 버튼을 누르면 작성칸이 열리고 그 위치로 부드럽게 스크롤된다
+  function openComposer() {
+    setShowComposer(true)
+    requestAnimationFrame(() => {
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
 
+  return (
+    <div className="pb-24 space-y-4">
       {/* 차시 단계 배너 */}
       <div className="rounded-2xl bg-emerald-600 text-white p-4">
         <p className="text-emerald-100 text-xs font-bold">
@@ -43,20 +50,16 @@ export default function LessonRoom({ lesson, me, onBack }: Props) {
       {lesson.content && <Collapsible title="수업 내용 / 제시문" defaultOpen>{lesson.content}</Collapsible>}
       {lesson.task && <TaskBox lesson={lesson} feed={feed} onChanged={load} />}
 
-      {/* 상단: 새 질문 만들기 */}
-      <button
-        onClick={() => setShowComposer((v) => !v)}
-        className="w-full btn-primary text-base py-3.5 shadow-md"
-      >
-        ✏️ 새 질문 만들기
-      </button>
-      {showComposer && (
-        <NewQuestion
-          lesson={lesson}
-          onDone={() => { setShowComposer(false); load() }}
-          onCancel={() => setShowComposer(false)}
-        />
-      )}
+      {/* 질문 작성칸 (하단 버튼으로 연다) */}
+      <div ref={composerRef}>
+        {showComposer && (
+          <NewQuestion
+            lesson={lesson}
+            onDone={() => { setShowComposer(false); load() }}
+            onCancel={() => setShowComposer(false)}
+          />
+        )}
+      </div>
 
       {/* 질문 카드뷰 목록 */}
       <div className="space-y-3">
@@ -70,13 +73,10 @@ export default function LessonRoom({ lesson, me, onBack }: Props) {
         )}
       </div>
 
-      {/* 하단 고정: 새 질문 만들기 */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-white via-white to-transparent">
-        <div className="max-w-3xl mx-auto">
-          <button
-            onClick={() => { setShowComposer(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-            className="w-full btn-primary text-base py-3.5 shadow-lg"
-          >
+      {/* 하단 고정: 새 질문 만들기 (이 버튼 하나만 둔다) */}
+      <div className="fixed bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-white via-white to-transparent pointer-events-none z-20">
+        <div className="max-w-3xl mx-auto pointer-events-auto">
+          <button onClick={openComposer} className="w-full btn-primary text-base py-3.5 shadow-lg">
             ✏️ 새 질문 만들기
           </button>
         </div>
@@ -204,7 +204,7 @@ function QuestionCard({ qv, me, onChanged }: { qv: QuestionView; me: StudentSess
   }
 
   return (
-    <section className="card">
+    <section className={`card q-card ${open ? 'q-card-open' : ''}`}>
       {/* 카드뷰 (접힘 상태) */}
       <button onClick={() => setOpen((v) => !v)} className="w-full text-left">
         <div className="flex items-center gap-2 mb-1">
