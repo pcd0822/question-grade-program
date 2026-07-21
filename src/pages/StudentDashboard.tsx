@@ -255,8 +255,9 @@ function Home({
         {lessons.length === 0 ? (
           <p className="text-slate-400 text-sm py-8 text-center card">아직 열린 수업이 없어요.</p>
         ) : (
-          // 가로 카드뷰 — 좌우로 밀어 넘긴다
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
+          // 가로 카드뷰 — 좌우로 밀어 넘긴다.
+          // 위아래 여백을 둬야 카드가 떠오를 때 그림자가 잘리지 않는다.
+          <div className="flex gap-3 overflow-x-auto py-2 -mx-1 px-1 snap-x snap-mandatory">
             {lessons.map((l) => (
               <button
                 key={l.id}

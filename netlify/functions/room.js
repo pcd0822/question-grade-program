@@ -139,7 +139,12 @@ export async function handler(event) {
         const x = clampPct(body.x, item.x)
         const y = clampPct(body.y, item.y)
         const { error: mvErr } = await admin.from('room_items').update({ x, y }).eq('id', item.id)
-        if (mvErr) throw mvErr
+        if (mvErr) {
+          // 22P02 = 좌표 컬럼이 아직 integer (마이그레이션 009/010 미적용)
+          if (mvErr.code === '22P02')
+            return json(503, { error: '공간 꾸미기가 아직 준비되지 않았어요. (마이그레이션 010 필요)' })
+          throw mvErr
+        }
         return json(200, await roomState(me.group_id))
       }
 

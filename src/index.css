@@ -42,9 +42,9 @@ html {
 .q-card::before {
   content: '';
   position: absolute;
-  inset: -2px;
-  border-radius: 1.05rem;
-  padding: 2px;
+  inset: -1px;
+  border-radius: 1.02rem;
+  padding: 1.5px;
   background: linear-gradient(135deg, #bbf7d0, #86efac 35%, #a7f3d0 65%, #d9f99d);
   /* 테두리만 남기고 가운데를 도려낸다 */
   -webkit-mask:
@@ -59,13 +59,14 @@ html {
   transition: opacity 0.18s ease;
   pointer-events: none;
 }
+/* 그림자는 카드에 바짝 붙인다. 오프셋·번짐이 크면 스크롤 컨테이너 가장자리에서 잘려 보인다. */
 .q-card:hover,
 .q-card-open {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   border-color: transparent;
   box-shadow:
-    0 10px 24px -8px rgba(52, 211, 153, 0.45),
-    0 4px 10px -4px rgba(163, 230, 53, 0.35);
+    0 2px 6px -2px rgba(52, 211, 153, 0.5),
+    0 1px 3px -1px rgba(132, 204, 22, 0.4);
 }
 .q-card:hover::before,
 .q-card-open::before {
@@ -83,9 +84,9 @@ html {
     border-color 0.18s ease;
 }
 .lesson-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   border-color: #86efac;
-  box-shadow: 0 10px 24px -8px rgba(52, 211, 153, 0.45);
+  box-shadow: 0 2px 6px -2px rgba(52, 211, 153, 0.5);
 }
 
 /* 손가락으로 끄는 동안 브라우저 기본 제스처가 끼어들지 않게 */

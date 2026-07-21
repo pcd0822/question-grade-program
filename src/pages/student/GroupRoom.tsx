@@ -12,27 +12,41 @@ interface Props {
   onSideData?: (d: RoomSideData | null) => void
 }
 
-// ── 3D 공간의 기하 ──────────────────────────────────────────────
-// 사용자 쪽으로 열린 방: 뒷벽 + 우측벽 + 바닥만 그리고 왼쪽은 트여 있다.
-// 좌표는 공간 가로·세로의 비율(0~100)이다.
-const BACK_Y = 45 // 뒷벽과 바닥이 만나는 높이
-const BACK_X = 78 // 뒷벽의 오른쪽 끝(= 우측벽이 시작하는 곳)
-const RIGHT_FRONT_Y = 82 // 우측벽의 앞쪽 아래 모서리 높이
+// ── 아이소메트릭 방의 기하 ──────────────────────────────────────
+// 두 벽이 가운데 뒤쪽 모서리에서 만나고 그 아래로 바닥이 마름모로 펼쳐진다.
+// (왼쪽벽 · 오른쪽벽 · 바닥이 서로 구분되는 인형의 집 시점)
+// 좌표는 모두 공간 가로·세로의 비율(0~100).
+const CORNER_X = 50 // 두 벽이 만나는 뒤쪽 모서리의 x
+const WALL_TOP_BACK = 6 // 모서리 꼭대기
+const WALL_TOP_SIDE = 22 // 화면 좌우 끝에서의 벽 윗변
+const FLOOR_BACK = 52 // 바닥 마름모의 뒤 꼭짓점 (= 모서리 아래)
+const FLOOR_SIDE = 68 // 바닥 마름모의 좌·우 꼭짓점
+const FLOOR_FRONT = 94 // 바닥 마름모의 앞 꼭짓점
 
-/** 바닥 위 한 점이 벗어나지 않도록 가둔다(우측벽 쪽 경사를 따라간다) */
+// 바닥 마름모의 중심과 반지름
+const FC_X = CORNER_X
+const FC_Y = (FLOOR_BACK + FLOOR_FRONT) / 2
+const FR_X = 50
+const FR_Y = (FLOOR_FRONT - FLOOR_BACK) / 2
+
+/**
+ * 바닥(마름모) 안으로 좌표를 가둔다.
+ * 마름모 내부 판정은 |dx|/a + |dy|/b <= 1 이므로, 벗어나면 그 비율만큼 당겨 넣는다.
+ */
 function clampToFloor(x: number, y: number) {
-  const cy = Math.min(96, Math.max(BACK_Y + 3, y))
-  // 바닥의 오른쪽 경계는 (BACK_X, BACK_Y) → (100, RIGHT_FRONT_Y) 로 비스듬하다
-  const maxX =
-    cy >= RIGHT_FRONT_Y
-      ? 97
-      : BACK_X + ((cy - BACK_Y) / (RIGHT_FRONT_Y - BACK_Y)) * (100 - BACK_X) - 3
-  return { x: Math.min(maxX, Math.max(3, x)), y: cy }
+  const dx = (x - FC_X) / FR_X
+  const dy = (y - FC_Y) / FR_Y
+  const d = Math.abs(dx) + Math.abs(dy)
+  const margin = 0.86 // 가장자리에 딱 붙지 않도록 조금 안쪽까지만
+  if (d <= margin || d === 0) return { x, y }
+  const k = margin / d
+  return { x: FC_X + dx * k * FR_X, y: FC_Y + dy * k * FR_Y }
 }
 
 /** 뒤쪽에 놓을수록 작게 보이게 해서 깊이감을 만든다 */
 function depthScale(y: number) {
-  return 0.72 + ((y - BACK_Y) / (100 - BACK_Y)) * 0.5
+  const t = (y - FLOOR_BACK) / (FLOOR_FRONT - FLOOR_BACK)
+  return 0.7 + Math.min(1, Math.max(0, t)) * 0.45
 }
 
 export default function GroupRoom({ me, onSideData }: Props) {
@@ -90,10 +104,11 @@ export default function GroupRoom({ me, onSideData }: Props) {
     const item = pending
     if (!item) return
     setPending(null)
-    // 앞쪽 가운데에 조금씩 흩어 놓아 새로 산 물건이 겹쳐 보이지 않게 한다
-    const x = 30 + Math.random() * 35
-    const y = 70 + Math.random() * 18
-    const p = clampToFloor(x, y)
+    // 바닥 가운데 언저리에 조금씩 흩어 놓아 새로 산 물건이 겹쳐 보이지 않게 한다
+    const p = clampToFloor(
+      FC_X + (Math.random() - 0.5) * 46,
+      FC_Y + (Math.random() - 0.5) * 20,
+    )
     await act(() => room.buy(item.type, p.x, p.y))
   }
 
@@ -238,7 +253,7 @@ function Room3D({
 
   function pointOf(e: React.PointerEvent) {
     const r = areaRef.current?.getBoundingClientRect()
-    if (!r) return { x: 50, y: 80 }
+    if (!r) return { x: FC_X, y: FC_Y }
     return clampToFloor(((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100)
   }
 
@@ -267,58 +282,81 @@ function Room3D({
     }
   }
 
+  // 각 면의 clip-path (아이소메트릭: 왼쪽벽 / 오른쪽벽 / 바닥)
+  const LEFT_WALL = `polygon(0% ${WALL_TOP_SIDE}%, ${CORNER_X}% ${WALL_TOP_BACK}%, ${CORNER_X}% ${FLOOR_BACK}%, 0% ${FLOOR_SIDE}%)`
+  const RIGHT_WALL = `polygon(${CORNER_X}% ${WALL_TOP_BACK}%, 100% ${WALL_TOP_SIDE}%, 100% ${FLOOR_SIDE}%, ${CORNER_X}% ${FLOOR_BACK}%)`
+  const FLOOR = `polygon(${CORNER_X}% ${FLOOR_BACK}%, 100% ${FLOOR_SIDE}%, ${CORNER_X}% ${FLOOR_FRONT}%, 0% ${FLOOR_SIDE}%)`
+
   return (
-    <div className="card p-0 overflow-hidden">
+    <div className="card p-2 overflow-hidden">
       <div
         ref={areaRef}
-        className="relative w-full select-none"
-        style={{ aspectRatio: '16 / 11', background: '#eef7f0' }}
+        className="relative w-full max-w-[520px] mx-auto select-none"
+        style={{ aspectRatio: '4 / 3' }}
       >
-        {/* 뒷벽 */}
+        {/* 왼쪽 벽 — 빛을 받는 쪽이라 더 밝게 */}
         <div
           className="absolute inset-0"
           style={{
-            clipPath: `polygon(0% 0%, ${BACK_X}% 0%, ${BACK_X}% ${BACK_Y}%, 0% ${BACK_Y}%)`,
-            background: 'linear-gradient(180deg, #f7fbf8 0%, #e6f2ea 100%)',
+            clipPath: LEFT_WALL,
+            background:
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.7) 1.5px, transparent 1.6px) 0 0/14px 14px, linear-gradient(120deg, #fdf6f8 0%, #f6e7ee 100%)',
           }}
         />
-        {/* 뒷벽 굽도리 */}
+        {/* 오른쪽 벽 — 그늘진 쪽이라 한 톤 어둡게 (두 벽이 확실히 구분된다) */}
         <div
           className="absolute inset-0"
           style={{
-            clipPath: `polygon(0% ${BACK_Y - 2.5}%, ${BACK_X}% ${BACK_Y - 2.5}%, ${BACK_X}% ${BACK_Y}%, 0% ${BACK_Y}%)`,
-            background: '#d7e9dd',
+            clipPath: RIGHT_WALL,
+            background:
+              'radial-gradient(circle at 50% 50%, rgba(255,255,255,.5) 1.5px, transparent 1.6px) 0 0/14px 14px, linear-gradient(60deg, #efdde6 0%, #e3cdda 100%)',
           }}
         />
-        {/* 우측벽 (안쪽으로 물러나는 사다리꼴) */}
+        {/* 모서리 선 — 두 벽이 만나는 세로선 */}
+        <div
+          className="absolute"
+          style={{
+            left: `${CORNER_X}%`,
+            top: `${WALL_TOP_BACK}%`,
+            height: `${FLOOR_BACK - WALL_TOP_BACK}%`,
+            width: 1,
+            background: 'rgba(148,120,140,.28)',
+          }}
+        />
+        {/* 굽도리(벽과 바닥이 만나는 띠) */}
         <div
           className="absolute inset-0"
           style={{
-            clipPath: `polygon(${BACK_X}% 0%, 100% 0%, 100% ${RIGHT_FRONT_Y}%, ${BACK_X}% ${BACK_Y}%)`,
-            background: 'linear-gradient(100deg, #dbeee2 0%, #c7e2d1 100%)',
+            clipPath: `polygon(0% ${FLOOR_SIDE - 2.2}%, ${CORNER_X}% ${FLOOR_BACK - 2.2}%, 100% ${FLOOR_SIDE - 2.2}%, 100% ${FLOOR_SIDE}%, ${CORNER_X}% ${FLOOR_BACK}%, 0% ${FLOOR_SIDE}%)`,
+            background: '#d9bfcd',
           }}
         />
         {/* 바닥 */}
         <div
           className="absolute inset-0"
           style={{
-            clipPath: `polygon(0% ${BACK_Y}%, ${BACK_X}% ${BACK_Y}%, 100% ${RIGHT_FRONT_Y}%, 0% 100%)`,
-            background: 'linear-gradient(180deg, #e3efe4 0%, #cfe6d4 60%, #c2ddc9 100%)',
+            clipPath: FLOOR,
+            background: 'linear-gradient(180deg, #f2dfe6 0%, #ecd2dd 55%, #e4c5d3 100%)',
           }}
         />
-        {/* 바닥 결(안쪽으로 모이는 선) */}
+        {/* 바닥 타일 — 마름모의 두 변과 나란한 선을 겹쳐 마름모 격자를 만든다.
+            각도는 바닥 변의 기울기에서 나온다: 변은 가로로 50%, 세로로 16% 이동하고
+            공간 비율이 4:3 이므로 atan(0.16*0.75 / 0.5) ≈ 13.5°.
+            CSS 각도는 "위"가 0°라, 가로에 가까운 줄무늬는 13.5° / -13.5° 가 된다. */}
         <div
-          className="absolute inset-0 opacity-40"
+          className="absolute inset-0 opacity-50"
           style={{
-            clipPath: `polygon(0% ${BACK_Y}%, ${BACK_X}% ${BACK_Y}%, 100% ${RIGHT_FRONT_Y}%, 0% 100%)`,
+            clipPath: FLOOR,
             background:
-              'repeating-linear-gradient(93deg, rgba(255,255,255,.55) 0 1px, transparent 1px 7%), repeating-linear-gradient(180deg, rgba(255,255,255,.45) 0 1px, transparent 1px 14%)',
+              'repeating-linear-gradient(13.5deg, rgba(255,255,255,.8) 0 1px, transparent 1px 26px), repeating-linear-gradient(-13.5deg, rgba(255,255,255,.8) 0 1px, transparent 1px 26px)',
           }}
         />
 
         {/* 아이템 (앞쪽에 있을수록 크고 위에 그린다) */}
         {items.map((it) => {
-          const live = drag && drag.id === it.id ? drag : { x: Number(it.x), y: Number(it.y) }
+          // 저장된 값이 무엇이든(예: 마이그레이션 전 격자 좌표) 항상 바닥 위에 그린다
+          const live =
+            drag && drag.id === it.id ? drag : clampToFloor(Number(it.x), Number(it.y))
           const s = depthScale(live.y)
           const isSel = selected === it.id
           const dragging = drag?.id === it.id
@@ -342,14 +380,14 @@ function Room3D({
               }}
               title={shop.find((sh) => sh.type === it.item_type)?.name || it.item_type}
             >
-              <span className="block text-4xl leading-none">{emojiOf(it.item_type)}</span>
+              <span className="block text-3xl leading-none">{emojiOf(it.item_type)}</span>
               {/* 바닥 그림자 */}
               <span
                 className="block mx-auto rounded-[50%]"
                 style={{
-                  width: 28,
-                  height: 7,
-                  marginTop: -4,
+                  width: 22,
+                  height: 6,
+                  marginTop: -3,
                   background: 'rgba(15,23,42,.18)',
                   filter: 'blur(2px)',
                 }}
@@ -362,7 +400,10 @@ function Room3D({
         })}
 
         {items.length === 0 && (
-          <p className="absolute inset-x-0 bottom-6 text-center text-sm text-slate-400">
+          <p
+            className="absolute inset-x-0 text-center text-sm text-slate-500/80"
+            style={{ top: `${FC_Y}%` }}
+          >
             상점에서 아이템을 사서 공간을 꾸며보세요.
           </p>
         )}
