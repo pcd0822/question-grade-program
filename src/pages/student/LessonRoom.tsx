@@ -17,8 +17,8 @@ export default function LessonRoom({ lesson, me, onBack }: Props) {
   const [showComposer, setShowComposer] = useState(false)
 
   const load = useCallback(() => {
-    fetchLessonFeed(lesson.id, me.id).then(setFeed)
-  }, [lesson.id, me.id])
+    fetchLessonFeed(lesson.id, me.id, me.qid).then(setFeed)
+  }, [lesson.id, me.id, me.qid])
 
   useEffect(() => {
     load()

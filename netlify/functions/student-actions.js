@@ -1,6 +1,6 @@
 // 학생 쓰기: 질문 등록 / 댓글(작성·수정·삭제) / 하트 토글 / 과제 제출 / 프로필 사진.
 // 모든 요청은 학번+코드로 재검증한다.
-import { admin, json, parseBody, verifyStudent, setSeed, SEED } from '../lib/admin.js'
+import { admin, json, parseBody, verifyStudent, setSeed, getStudentQid, toggleHeart } from '../lib/admin.js'
 
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method Not Allowed' })
@@ -27,14 +27,14 @@ export async function handler(event) {
       }
 
       // ── 질문 등록 (익명) ──
+      // author_id 는 서버 전용(anon 은 못 읽음), author_qid 만 학생 화면에 노출된다.
       case 'create-question': {
         const text = String(body.text || '').trim()
         if (!body.lessonId || !text) return json(400, { error: '질문 내용을 입력하세요.' })
-        const { data, error } = await admin
-          .from('questions')
-          .insert({ lesson_id: body.lessonId, author_id: me.id, text })
-          .select('*')
-          .single()
+        const row = { lesson_id: body.lessonId, author_id: me.id, text }
+        const qid = await getStudentQid(me.id)
+        if (qid) row.author_qid = qid
+        const { data, error } = await admin.from('questions').insert(row).select('*').single()
         if (error) throw error
         return json(200, { question: data })
       }
@@ -96,41 +96,14 @@ export async function handler(event) {
       }
 
       // ── 하트 토글 (자기 질문 제외, 1인 1회) + 보너스 새싹 재조정 ──
+      // 30명이 같은 질문에 동시에 하트를 눌러도 어긋나지 않도록 DB 함수 안에서
+      // 질문 행을 잠그고 (하트 토글 + 보너스 재계산)을 한 트랜잭션으로 처리한다.
       case 'toggle-heart': {
         if (!body.questionId) return json(400, { error: 'questionId 누락' })
-        const { data: q } = await admin
-          .from('questions')
-          .select('id, author_id, lesson_id, lessons(heart_bonus_cap)')
-          .eq('id', body.questionId)
-          .maybeSingle()
-        if (!q) return json(404, { error: '질문을 찾을 수 없습니다.' })
-        if (q.author_id === me.id) return json(400, { error: '자기 질문에는 하트를 누를 수 없습니다.' })
-
-        const { data: existing } = await admin
-          .from('hearts')
-          .select('id')
-          .eq('question_id', body.questionId)
-          .eq('student_id', me.id)
-          .maybeSingle()
-
-        if (existing) await admin.from('hearts').delete().eq('id', existing.id)
-        else await admin.from('hearts').insert({ question_id: body.questionId, student_id: me.id })
-
-        const { count } = await admin
-          .from('hearts')
-          .select('id', { count: 'exact', head: true })
-          .eq('question_id', body.questionId)
-        const cap = q.lessons?.heart_bonus_cap ?? 3
-        const bonus = Math.min(count || 0, cap) * SEED.HEART
-        await setSeed({
-          studentId: q.author_id,
-          lessonId: q.lesson_id,
-          source: 'heart',
-          refId: body.questionId,
-          amount: bonus,
-          grantedBy: 'system',
-        })
-        return json(200, { hearted: !existing, heartCount: count || 0 })
+        const r = await toggleHeart(body.questionId, me.id)
+        if (r.error === 'question_not_found') return json(404, { error: '질문을 찾을 수 없습니다.' })
+        if (r.error === 'own_question') return json(400, { error: '자기 질문에는 하트를 누를 수 없습니다.' })
+        return json(200, { hearted: r.hearted, heartCount: r.heartCount })
       }
 
       // ── 프로필 사진 업로드 (dataURL → Storage → students.avatar_url) ──

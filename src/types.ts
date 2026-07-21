@@ -17,7 +17,7 @@ export const STAGE_LABEL: Record<QuestionStage, string> = {
   creative: '창의·평가 질문',
 }
 
-/** 답변 상태 */
+/** @deprecated 답변(answers)은 댓글(Comment)로 대체됐다. 새 코드에서 쓰지 말 것. */
 export type AnswerStatus =
   | 'submitted' // 제출됨(미검토)
   | 'approved' // 교사가 새싹 지급(승인)
@@ -38,12 +38,13 @@ export interface Student {
   name: string
   code: string // 6자리 개별 로그인 코드
   group_id: string | null
-  cumulative_seeds: number // 누적 새싹(랭킹 기준, 감소하지 않음)
+  // 누적 새싹. DB 컬럼이 아니라 서버가 seed_log 합계로 계산해 채워 준다(단일 진실 소스).
+  cumulative_seeds: number
   avatar_url: string | null
   created_at: string
 }
 
-/** 학생 로그인 세션에서 클라이언트가 보관하는 최소 정보(코드 제외) */
+/** 학생 로그인 세션에서 클라이언트가 보관하는 최소 정보 */
 export interface StudentSession {
   id: string
   student_no: string
@@ -51,6 +52,7 @@ export interface StudentSession {
   group_id: string | null
   avatar_url: string | null
   code: string // 이후 서버 쓰기 요청 재검증용으로만 로컬 보관
+  qid?: string | null // 공개용 식별자 — 내 질문 판별에만 쓴다(마이그레이션 005 이전이면 null)
 }
 
 /** 질문에 달리는 실명 댓글 (답변을 대체). 교사 댓글도 포함 */
@@ -85,14 +87,18 @@ export interface Lesson {
 /** 질문 */
 export interface Question {
   id: string
+  // 작성자(학생)의 실제 id. anon 은 이 컬럼을 읽을 수 없다(005) — 서버·교사용.
+  author_id?: string
+  // 작성자의 공개용 식별자. 학생 화면에서 "내 질문" 판별에만 쓴다.
+  // students.id 와 다른 값이라 댓글(실명)과 이어붙여도 작성자를 알 수 없다.
+  author_qid?: string | null
   lesson_id: string
-  author_id: string // 작성자(학생). 학생 화면에서는 숨김(익명)
   text: string
   seed_granted: boolean // 교사가 이 질문에 새싹을 지급했는지
   created_at: string
 }
 
-/** 답변 (한 학생당 한 질문에 하나) */
+/** @deprecated 댓글(Comment)이 답변을 대체했다. 마이그레이션 007 에서 테이블도 삭제된다. */
 export interface Answer {
   id: string
   question_id: string

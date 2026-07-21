@@ -49,7 +49,7 @@ export async function handler(event) {
           lessonId: c.questions?.lesson_id ?? null,
           source: 'comment',
           refId: c.id,
-          amount: on ? SEED.ANSWER : 0,
+          amount: on ? SEED.COMMENT : 0,
         })
         return json(200, { ok: true, status: on ? 'approved' : 'normal' })
       }

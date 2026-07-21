@@ -40,10 +40,15 @@ export interface LessonFeed {
   mySubmission: Submission | null
 }
 
-export async function fetchLessonFeed(lessonId: string, myId: string): Promise<LessonFeed> {
+export async function fetchLessonFeed(
+  lessonId: string,
+  myId: string,
+  myQid?: string | null,
+): Promise<LessonFeed> {
+  // author_id 는 anon 권한이 없다(005) — 절대 select 하지 말 것. 익명성의 핵심.
   const { data: qData } = await supabase
     .from('questions')
-    .select('*')
+    .select('id, lesson_id, author_qid, text, seed_granted, created_at')
     .eq('lesson_id', lessonId)
     .order('created_at', { ascending: false })
   const questions = (qData as Question[]) || []
@@ -73,7 +78,8 @@ export async function fetchLessonFeed(lessonId: string, myId: string): Promise<L
       question: q,
       heartCount: qHearts.length,
       hearted: qHearts.some((h) => h.student_id === myId),
-      isMine: q.author_id === myId,
+      // 005 이후에는 qid 로, 그 이전(백필 전 질문)에는 author_id 로 판별
+      isMine: q.author_qid ? q.author_qid === myQid : q.author_id === myId,
       comments: comments.filter((c) => c.question_id === q.id),
     }
   })

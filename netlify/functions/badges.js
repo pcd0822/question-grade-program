@@ -19,6 +19,21 @@ export async function handler(event) {
       case 'create': {
         const name = String(body.name || '').trim()
         if (!name) return json(400, { error: '배지 이름을 입력하세요.' })
+
+        // 이미지는 배지를 만들기 "전에" 검증한다.
+        // (예전에는 2MB 초과 이미지를 조용히 버리고 배지만 만들어, 교사에게는 성공처럼 보였다)
+        const dataUrl = String(body.imageDataUrl || '')
+        let image = null
+        if (dataUrl) {
+          const m = dataUrl.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/)
+          if (!m) return json(400, { error: '이미지 형식이 올바르지 않습니다.' })
+          const mime = m[1]
+          const buffer = Buffer.from(m[3], 'base64')
+          if (buffer.length > 2 * 1024 * 1024)
+            return json(400, { error: '배지 이미지가 너무 큽니다(2MB 이하).' })
+          image = { mime, buffer, ext: mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg' }
+        }
+
         const { data: badge, error } = await admin
           .from('badges')
           .insert({
@@ -30,25 +45,20 @@ export async function handler(event) {
           .single()
         if (error) throw error
 
-        // 이미지 업로드(선택)
-        const dataUrl = String(body.imageDataUrl || '')
-        const m = dataUrl.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/)
-        if (m) {
-          const mime = m[1]
-          const ext = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
-          const buffer = Buffer.from(m[3], 'base64')
-          if (buffer.length <= 2 * 1024 * 1024) {
-            const path = `${badge.id}.${ext}`
-            const { error: upErr } = await admin.storage
-              .from('badges')
-              .upload(path, buffer, { contentType: mime, upsert: true })
-            if (!upErr) {
-              const { data: pub } = admin.storage.from('badges').getPublicUrl(path)
-              const url = `${pub.publicUrl}?v=${Date.now()}`
-              await admin.from('badges').update({ image_url: url }).eq('id', badge.id)
-              badge.image_url = url
-            }
+        // 이미지 업로드(선택). 실패하면 방금 만든 배지를 되돌리고 에러를 알린다.
+        if (image) {
+          const path = `${badge.id}.${image.ext}`
+          const { error: upErr } = await admin.storage
+            .from('badges')
+            .upload(path, image.buffer, { contentType: image.mime, upsert: true })
+          if (upErr) {
+            await admin.from('badges').delete().eq('id', badge.id)
+            throw upErr
           }
+          const { data: pub } = admin.storage.from('badges').getPublicUrl(path)
+          const url = `${pub.publicUrl}?v=${Date.now()}`
+          await admin.from('badges').update({ image_url: url }).eq('id', badge.id)
+          badge.image_url = url
         }
         return json(200, { badge })
       }

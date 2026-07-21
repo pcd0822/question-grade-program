@@ -3,6 +3,7 @@ import { teacher, type GroupsOverview } from '../../lib/teacherApi'
 import type { Student } from '../../types'
 import { useRealtime } from '../../hooks/useRealtime'
 import Avatar from '../../components/Avatar'
+import { downloadCsv, formatDateTime, todayStamp } from '../../lib/csv'
 
 const EMPTY: GroupsOverview = { students: [], groups: [], stats: { classTotal: 0, groupAvg: 0, studentAvg: 0 } }
 
@@ -175,25 +176,50 @@ function StudentsSection({
     await teacher.assign(s.id, groupId || null)
     onChanged()
   }
+  const [reporting, setReporting] = useState(false)
+
   function exportCsv() {
-    const rows = [
+    downloadCsv(`학생명단_코드_새싹_${todayStamp()}.csv`, [
       ['학번', '이름', '코드', '모둠', '누적새싹'],
       ...data.students.map((s) => [
         s.student_no,
         s.name,
         s.code,
         data.groups.find((g) => g.id === s.group_id)?.name || '',
-        String(s.cumulative_seeds),
+        s.cumulative_seeds,
       ]),
-    ]
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = '학생명단_코드_새싹.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    ])
+  }
+
+  // 형성평가 증빙: 학생별로 언제·무엇으로 새싹을 받았는지 한 줄씩
+  async function exportSeedReport() {
+    setReporting(true)
+    setError('')
+    try {
+      const rows = await teacher.seedReport()
+      if (!rows.length) {
+        alert('아직 지급된 새싹 내역이 없습니다.')
+        return
+      }
+      downloadCsv(`새싹내역_${todayStamp()}.csv`, [
+        ['학번', '이름', '모둠', '일시', '수업', '획득 경로', '새싹', '지급 주체', '근거 내용'],
+        ...rows.map((r) => [
+          r.student_no,
+          r.name,
+          r.group_name,
+          formatDateTime(r.created_at),
+          r.lesson_title,
+          r.source_label,
+          r.amount,
+          r.granted_by === 'system' ? '자동' : '교사',
+          r.ref_excerpt,
+        ]),
+      ])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '내역 불러오기 실패')
+    } finally {
+      setReporting(false)
+    }
   }
 
   return (
@@ -206,9 +232,14 @@ function StudentsSection({
       </form>
       {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
 
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
         <h3 className="font-bold text-slate-700 text-sm">명단 ({data.students.length})</h3>
-        <button onClick={exportCsv} disabled={!data.students.length} className="btn-secondary text-sm">CSV 내보내기</button>
+        <div className="flex gap-2">
+          <button onClick={exportCsv} disabled={!data.students.length} className="btn-secondary text-sm">명단 CSV</button>
+          <button onClick={exportSeedReport} disabled={reporting} className="btn-secondary text-sm" title="학생별로 언제·무엇으로 새싹을 받았는지 전체 내역">
+            {reporting ? '만드는 중…' : '새싹 내역 CSV'}
+          </button>
+        </div>
       </div>
 
       {loading ? (

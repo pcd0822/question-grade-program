@@ -1,5 +1,6 @@
 // 학생 로그인: 학번 + 6자리 코드 검증. 성공 시 코드 제외한 세션 정보 반환.
-import { json, parseBody, verifyStudent } from '../lib/admin.js'
+// verifyStudent 는 code 를 포함한 행을 돌려주므로 필드를 반드시 골라 담는다.
+import { json, parseBody, verifyStudent, getStudentQid } from '../lib/admin.js'
 
 export async function handler(event) {
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method Not Allowed' })
@@ -13,6 +14,8 @@ export async function handler(event) {
       name: student.name,
       group_id: student.group_id,
       avatar_url: student.avatar_url || null,
+      // 내 질문 판별용 공개 식별자(005 이전에는 null)
+      qid: await getStudentQid(student.id),
     },
   })
 }

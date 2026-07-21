@@ -1,4 +1,16 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+
+/** md 브레이크포인트(768px) 이상인지. 창 크기 변경·화면 회전에 반응한다. */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia('(min-width: 768px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return isDesktop
+}
 
 export interface NavItem {
   key: string
@@ -30,12 +42,15 @@ export default function AppShell({
   children,
   maxWidth = 'max-w-4xl',
 }: Props) {
-  const [open, setOpen] = useState(() => window.innerWidth >= 768)
+  // 창 크기를 렌더 중에 직접 읽으면 회전·창 크기 변경에 반응하지 못한다.
+  // 데스크톱 여부를 상태로 두고 resize 를 구독한다.
+  const isDesktop = useIsDesktop()
+  const [open, setOpen] = useState(isDesktop)
   const currentItem = nav.find((n) => n.key === current)
 
   function select(k: string) {
     onSelect(k)
-    if (window.innerWidth < 768) setOpen(false)
+    if (!isDesktop) setOpen(false)
   }
 
   return (
@@ -100,7 +115,7 @@ export default function AppShell({
       </div>
 
       {/* 메인 */}
-      <main className="px-4 py-5 transition-[margin] duration-300" style={{ marginLeft: open && window.innerWidth >= 768 ? 256 : 0 }}>
+      <main className="px-4 py-5 transition-[margin] duration-300" style={{ marginLeft: open && isDesktop ? 256 : 0 }}>
         <div className={`${maxWidth} mx-auto`}>{children}</div>
       </main>
     </div>

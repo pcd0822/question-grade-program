@@ -52,6 +52,20 @@ export interface GroupsOverview {
   stats: { classTotal: number; groupAvg: number; studentAvg: number }
 }
 
+/** 새싹 획득 내역 한 줄 (형성평가 증빙 CSV) */
+export interface SeedReportRow {
+  created_at: string
+  student_no: string
+  name: string
+  group_name: string
+  lesson_title: string
+  source: string
+  source_label: string
+  amount: number
+  granted_by: string
+  ref_excerpt: string
+}
+
 export const teacher = {
   // 학생
   listStudents: () =>
@@ -99,6 +113,8 @@ export const teacher = {
   deleteGroup: (id: string) => callFn('groups', { action: 'delete-group', teacherCode: tc(), id }),
   assign: (studentId: string, groupId: string | null) =>
     callFn('groups', { action: 'assign', teacherCode: tc(), studentId, groupId }),
+  seedReport: () =>
+    callFn<{ rows: SeedReportRow[] }>('groups', { action: 'seed-report', teacherCode: tc() }).then((r) => r.rows),
 
   // 배지
   listBadges: () =>

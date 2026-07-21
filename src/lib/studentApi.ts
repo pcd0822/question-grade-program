@@ -85,7 +85,8 @@ export interface RoomState {
 
 export const room = {
   catalog: () => callFn<{ shop: ShopItem[]; cols: number; rows: number }>('room', { action: 'catalog' }),
-  state: (groupId: string) => callFn<RoomState>('room', { action: 'state', groupId }),
+  // 모둠원 실명이 담기므로 서버가 학생 인증을 요구한다.
+  state: (groupId: string) => callFn<RoomState>('room', { action: 'state', ...creds(), groupId }),
   buy: (itemType: string) => callFn<RoomState>('room', { action: 'buy', ...creds(), itemType }),
   move: (itemId: string, x: number, y: number) =>
     callFn<RoomState>('room', { action: 'move', ...creds(), itemId, x, y }),
