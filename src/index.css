@@ -106,6 +106,18 @@ html {
 .ri3d-spin {
   animation: ri3d-spin-y 7s linear infinite;
 }
+/* 둥근(빌보드) 부품이 스핀을 상쇄해 항상 정면을 보게 하는 역방향 회전. 스핀과 같은 타이밍. */
+@keyframes ri3d-spin-y-rev {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-360deg);
+  }
+}
+.ri3d-spin-rev {
+  animation: ri3d-spin-y-rev 7s linear infinite;
+}
 
 /* 움직임을 줄이도록 설정한 기기에서는 들썩임을 뺀다 */
 @media (prefers-reduced-motion: reduce) {
@@ -121,7 +133,8 @@ html {
   .lesson-card:hover {
     transform: none;
   }
-  .ri3d-spin {
+  .ri3d-spin,
+  .ri3d-spin-rev {
     animation: none;
   }
 }
