@@ -28,7 +28,7 @@ lint 설정에서 **`react-hooks/set-state-in-effect`는 꺼 두었다.** 라우
 
 ## 스택
 
-React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.config` 없음) + **Supabase**(Postgres + Realtime + Storage) + **Netlify Functions** + Netlify 배포. 로컬 풀스택 실행은 `netlify-cli`(devDependency).
+React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.config` 없음) + **Supabase**(Postgres + Realtime + Storage) + **Netlify Functions** + Netlify 배포. 로컬 풀스택 실행은 `netlify-cli`(devDependency). 모둠 공간 3D 아이템에 **three.js**(동적 import 로 코드 스플릿 — 메인 번들 무관, 모둠 공간 진입 시에만 로드).
 
 ## 아키텍처
 
@@ -174,7 +174,12 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
   - 바닥 격자선은 SVG(`preserveAspectRatio="none"` + `non-scaling-stroke`)로 그린다 — CSS gradient/skew 로는 선 두께가 왜곡된다.
   - **회전은 2D 시계방향이 아니라 세로축 기준 3D 회전**(`perspective() rotateY()`)이다. 물건이 제자리에서 옆으로 돌아서는 느낌이라야 한다. 조작은 **가로 드래그**로 매핑한다(`ROTATE_PX_PER_TURN`).
   - 아이템은 **위치(x·y) · 크기(scale 0.5~2.5) · 방향(rotation 0~360)** 세 값을 갖는다(011). 아이템을 톡 누르면 크기(⤢)·회전(↻) 손잡이가 나오고, 끌어서 조절한다. 세 값 모두 `move` 액션 하나로 함께 저장된다.
-  - **아이템은 진짜 3D 모형**(`components/RoomItem3D`)이다. 이모지가 아니라 preserve-3d 로 6면을 세운 직육면체(`Cuboid`) 여러 개를 조립하므로 rotation(세로축 rotateY)을 걸면 옆·뒤가 실제로 보인다. 상점 그리드·구매확인 팝업에서는 `spin` 으로 360° 자동 회전(reduced-motion 이면 정지). 새 상점 아이템을 추가하면 `shop.js` 카탈로그와 함께 `RoomItem3D` 의 `Model` switch 에 모형을 추가해야 한다(없으면 기본 상자로 렌더).
+  - **아이템은 three.js(procedural) 로 사실적으로 렌더**한다(`components/RoomItem3D` + `lib/room3d.ts`). 다운로드하는 3D 에셋은 **없고** 지오메트리를 코드로 생성한다(둥근 것은 `LatheGeometry` 회전체·잔물결 준 `IcosahedronGeometry`, 각진 가구는 `BoxGeometry`, 시계·액자·창문은 `CanvasTexture` 앞면). 실제 광원으로 음영이 생겨 "구 집합" 느낌이 없다.
+    - three.js 는 **동적 import(코드 스플릿)** — 모둠 공간을 처음 열 때만 로드(메인 번들과 분리). **에셋 다운로드가 없어 로딩 버퍼링이 없다.**
+    - **공유 렌더러 1개**(WebGL 컨텍스트 1개)로 각 아이템을 그려 인스턴스별 2D 캔버스에 복사(`drawRoomItem`). 아이템마다 canvas/컨텍스트를 만들면 브라우저 한도(~16)에 걸리므로 금지.
+    - 방 아이템은 회전·이동 시에만, 상점·구매확인 프리뷰는 `spin`(rAF 자동 360°, reduced-motion 이면 정지)만 그린다(온디맨드 → 배터리·발열↓).
+    - **WebGL 을 못 쓰거나 로딩 중이면** 순수 CSS 폴백(`components/RoomItemCSS`)으로 자동 대체된다. 폴백도 같은 props 를 받는다.
+    - 새 상점 아이템을 추가하면 `shop.js` 카탈로그 + `room3d.ts` 의 `buildModel` switch + (폴백용) `RoomItemCSS` 의 `Model` switch 에 모두 추가한다(없으면 기본 도형).
   - **모든 변경은 "끌기 → 확인/취소"**. 확인 전에는 서버에 저장하지 않는다. 확인을 누르면 선택 테두리가 사라지고, 화면은 새 상태를 유지한 채(`localPos` 임시 값) 저장만 뒤에서 진행된다 — **서버 응답을 기다려 아이템이 뒤늦게 움직이는 지연이 없어야 한다.** 저장 중에도 계속 만질 수 있게 `editable` 은 `busy` 와 무관하다.
   - 상점은 별도 섹션이 아니라 **방 안 좌하단 버튼 → 팝업**(`ShopModal`)이다. 구매를 확정하면 팝업이 닫혀 새 아이템이 바로 보인다.
 - **모둠 채팅**(`group_chat`): 우리 모둠에서만 보이고 쓸 수 있다. 댓글과 같은 이유로 이름·아바타를 행에 **비정규화 저장**하며, 프로필 사진을 바꾸면 기존 댓글과 함께 채팅 아바타도 서버에서 갱신한다.
