@@ -9,6 +9,8 @@ import { useRealtime } from '../../hooks/useRealtime'
 import Avatar from '../../components/Avatar'
 import { HeartIcon, CommentIcon } from '../../components/icons'
 import { seedBurstAt } from '../../lib/confetti'
+import SortToggle from '../../components/SortToggle'
+import { sortByCreated, type SortOrder } from '../../lib/sort'
 
 export default function QuestionDashboard() {
   const [lessons, setLessons] = useState<Lesson[]>([])
@@ -16,6 +18,7 @@ export default function QuestionDashboard() {
   const [questions, setQuestions] = useState<TeacherFeedQuestion[]>([])
   const [submissions, setSubmissions] = useState<TeacherFeedSubmission[]>([])
   const [loading, setLoading] = useState(false)
+  const [sort, setSort] = useState<SortOrder>('newest')
 
   useEffect(() => {
     teacher.listLessons().then((ls) => {
@@ -24,6 +27,8 @@ export default function QuestionDashboard() {
       if (active) setLessonId(active.id)
     })
   }, [])
+
+  const sortedLessons = sortByCreated(lessons, sort)
 
   const loadFeed = useCallback(async () => {
     if (!lessonId) return
@@ -45,12 +50,15 @@ export default function QuestionDashboard() {
   return (
     <div className="space-y-4">
       <section className="card">
-        <span className="block text-sm font-bold text-slate-600 mb-2">수업 선택</span>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-sm font-bold text-slate-600">수업 선택</span>
+          {lessons.length > 1 && <SortToggle value={sort} onChange={setSort} />}
+        </div>
         {lessons.length === 0 ? (
           <p className="text-sm text-slate-400">개설된 수업이 없습니다.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {lessons.map((l) => (
+            {sortedLessons.map((l) => (
               <button
                 key={l.id}
                 onClick={() => setLessonId(l.id)}
@@ -72,7 +80,7 @@ export default function QuestionDashboard() {
         </p>
       </section>
 
-      {submissions.length > 0 && <SubmissionsPanel submissions={submissions} />}
+      {submissions.length > 0 && <SubmissionsPanel submissions={submissions} onChanged={loadFeed} />}
 
       {loading && questions.length === 0 ? (
         <p className="text-slate-400 text-sm py-8 text-center">불러오는 중…</p>
@@ -85,30 +93,91 @@ export default function QuestionDashboard() {
   )
 }
 
-function SubmissionsPanel({ submissions }: { submissions: TeacherFeedSubmission[] }) {
+function SubmissionsPanel({ submissions, onChanged }: { submissions: TeacherFeedSubmission[]; onChanged: () => void }) {
   const [open, setOpen] = useState(false)
+  const approvedCount = submissions.filter((s) => s.status === 'approved').length
   return (
     <section className="card">
       <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between font-bold text-slate-800">
-        <span>📝 과제 답변 제출 ({submissions.length})</span>
+        <span>
+          📝 과제 답변 제출 ({submissions.length})
+          {approvedCount > 0 && <span className="ml-2 text-xs text-emerald-600 font-bold">승인 {approvedCount}</span>}
+        </span>
         <span className="text-slate-400 text-sm">{open ? '접기' : '펼치기'}</span>
       </button>
       {open && (
         <ul className="mt-3 space-y-2">
           {submissions.map((s) => (
-            <li key={s.id} className="bg-slate-50 rounded-lg p-2.5 flex gap-2">
-              <Avatar name={s.author?.name || '?'} src={s.author?.avatar_url} size={32} />
-              <div className="min-w-0">
-                <div className="text-xs text-slate-400">
-                  <span className="font-bold text-slate-600">{s.author?.name || '?'}</span> ({s.author?.student_no})
-                </div>
-                <p className="text-slate-700 text-sm whitespace-pre-wrap">{s.text}</p>
-              </div>
-            </li>
+            <SubmissionRow key={s.id} s={s} onChanged={onChanged} />
           ))}
         </ul>
       )}
     </section>
+  )
+}
+
+function SubmissionRow({ s, onChanged }: { s: TeacherFeedSubmission; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const status = s.status || 'normal'
+
+  async function toggleApprove(e: React.MouseEvent) {
+    setBusy(true)
+    try {
+      if (status !== 'approved') seedBurstAt(e)
+      await teacher.grantSubmissionSeed(s.id, status !== 'approved')
+      await onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function reject() {
+    const fb = prompt('반려 사유(학생에게 보일 피드백)를 입력하세요.')
+    if (fb == null || !fb.trim()) return
+    setBusy(true)
+    try {
+      await teacher.rejectSubmission(s.id, fb.trim())
+      await onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className={`rounded-lg p-2.5 flex gap-2 ${status === 'rejected' ? 'bg-red-50' : 'bg-slate-50'}`}>
+      <Avatar name={s.author?.name || '?'} src={s.author?.avatar_url} size={32} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 text-xs mb-0.5 flex-wrap">
+          <span className="font-bold text-slate-600">{s.author?.name || '?'}</span>
+          <span className="text-slate-400">({s.author?.student_no})</span>
+          {status === 'approved' && <span className="text-emerald-600 font-bold">🌱 새싹 지급됨</span>}
+          {status === 'rejected' && <span className="text-red-500 font-bold">반려됨</span>}
+        </div>
+        <p className="text-slate-700 text-sm whitespace-pre-wrap">{s.text}</p>
+        {status === 'rejected' && s.teacher_feedback && (
+          <p className="text-xs text-red-500 mt-1">↳ 피드백: {s.teacher_feedback}</p>
+        )}
+        <div className="flex gap-2 mt-1.5">
+          <button
+            onClick={toggleApprove}
+            disabled={busy}
+            className={`rounded-lg px-2.5 py-1 text-xs font-bold border ${
+              status === 'approved'
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-white text-emerald-600 border-emerald-300 hover:bg-emerald-50'
+            }`}
+          >
+            🌱🌱 {status === 'approved' ? '승인 취소' : '승인(새싹 2개)'}
+          </button>
+          <button
+            onClick={reject}
+            disabled={busy}
+            className="rounded-lg px-2.5 py-1 text-xs font-bold bg-white text-red-500 border border-red-200 hover:bg-red-50"
+          >
+            반려
+          </button>
+        </div>
+      </div>
+    </li>
   )
 }
 

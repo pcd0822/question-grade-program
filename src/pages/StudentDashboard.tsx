@@ -7,6 +7,8 @@ import { STAGE_LABEL } from '../types'
 import { useRealtime } from '../hooks/useRealtime'
 import Avatar from '../components/Avatar'
 import AppShell, { type NavItem } from '../components/AppShell'
+import SortToggle from '../components/SortToggle'
+import { sortByCreated, type SortOrder } from '../lib/sort'
 import LessonRoom from './student/LessonRoom'
 import GroupRoom from './student/GroupRoom'
 
@@ -235,6 +237,8 @@ function Home({
   lessons: Lesson[]
   onEnter: (l: Lesson) => void
 }) {
+  const [sort, setSort] = useState<SortOrder>('newest')
+  const sortedLessons = sortByCreated(lessons, sort)
   return (
     <div className="space-y-5">
       {/* 내 새싹 (배너를 닫아도 보이도록 본문에도 둔다) */}
@@ -251,14 +255,17 @@ function Home({
       </div>
 
       <div>
-        <h2 className="font-bold text-slate-700 mb-2">수업 목록</h2>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h2 className="font-bold text-slate-700">수업 목록</h2>
+          {lessons.length > 1 && <SortToggle value={sort} onChange={setSort} />}
+        </div>
         {lessons.length === 0 ? (
           <p className="text-slate-400 text-sm py-8 text-center card">아직 열린 수업이 없어요.</p>
         ) : (
           // 가로 카드뷰 — 좌우로 밀어 넘긴다.
           // 위아래 여백을 둬야 카드가 떠오를 때 그림자가 잘리지 않는다.
           <div className="flex gap-3 overflow-x-auto py-2 -mx-1 px-1 snap-x snap-mandatory">
-            {lessons.map((l) => (
+            {sortedLessons.map((l) => (
               <button
                 key={l.id}
                 onClick={() => onEnter(l)}

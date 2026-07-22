@@ -90,6 +90,7 @@ export async function generateUniqueCode() {
 export const SEED = {
   QUESTION: 1, // 교사가 질문에 지급
   COMMENT: 2, // 교사가 (좋은) 댓글에 지급 — 답변(answers)을 대체한 개념
+  SUBMISSION: 2, // 교사가 과제 답변을 승인하면 지급
   HEART: 1, // 하트 1개당 보너스
 }
 
@@ -236,7 +237,13 @@ export function isMissingFunction(error) {
 /** 테이블/컬럼이 아직 없는 경우(마이그레이션 미적용)인지 판별 */
 export function isMissingTable(error) {
   // PGRST205 = 스키마 캐시에 테이블 없음, 42P01 = undefined_table, 42703 = undefined_column
-  return error?.code === 'PGRST205' || error?.code === '42P01' || error?.code === '42703'
+  // PGRST204 = insert/upsert 페이로드에 스키마에 없는 컬럼(예: 012 미적용 시 submissions.status)
+  return (
+    error?.code === 'PGRST205' ||
+    error?.code === 'PGRST204' ||
+    error?.code === '42P01' ||
+    error?.code === '42703'
+  )
 }
 
 /** plpgsql 이 raise 한 사용자 예외 이름 추출 (예: 'insufficient_seeds') */

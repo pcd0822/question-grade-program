@@ -139,7 +139,9 @@ export interface StudentBadge {
 /** 새싹 지급 로그 (형성평가 증빙 · CSV 내보내기) */
 export type SeedSource =
   | 'question' // 질문에 대한 교사 지급
-  | 'answer' // 답변에 대한 교사 지급
+  | 'comment' // 댓글에 대한 교사 지급
+  | 'submission' // 과제 답변 승인에 대한 교사 지급
+  | 'answer' // 답변(레거시)에 대한 교사 지급
   | 'heart' // 하트 보너스(시스템 자동)
   | 'manual' // 기타 수동 조정
 
@@ -160,8 +162,22 @@ export interface Submission {
   lesson_id: string
   author_id: string
   text: string
+  // 교사 검토 상태(댓글과 동일 모델). approved = 새싹 지급, rejected = 반려(피드백)
+  status: 'normal' | 'approved' | 'rejected'
+  teacher_feedback: string | null // 반려 시 교사 피드백
   created_at: string
   updated_at: string
+}
+
+/** 수업 자료 파일 (교사 업로드 → 학생 다운로드). 실물은 Storage, 메타는 lesson_files 테이블 */
+export interface LessonFile {
+  id: string
+  lesson_id: string
+  name: string // 원본 파일명
+  url: string // 공개 다운로드 URL
+  size: number // 바이트
+  mime: string | null
+  created_at: string
 }
 
 /** 모둠 공간에 배치된 아이템 */

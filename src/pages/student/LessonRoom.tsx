@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { STAGE_LABEL, type Comment, type Lesson, type StudentSession } from '../../types'
-import { fetchLessonFeed, type LessonFeed, type QuestionView } from '../../lib/studentData'
+import { STAGE_LABEL, type Comment, type Lesson, type LessonFile, type StudentSession } from '../../types'
+import { fetchLessonFeed, fetchLessonFiles, type LessonFeed, type QuestionView } from '../../lib/studentData'
+import { formatBytes } from '../../lib/files'
 import { student } from '../../lib/studentApi'
 import { useRealtime } from '../../hooks/useRealtime'
 import Avatar from '../../components/Avatar'
@@ -14,17 +15,19 @@ interface Props {
 // 수업 목록으로 돌아가는 버튼은 AppShell 상단 바에 있다(StudentDashboard 참고).
 export default function LessonRoom({ lesson, me }: Props) {
   const [feed, setFeed] = useState<LessonFeed>({ questions: [], mySubmission: null })
+  const [lessonFiles, setLessonFiles] = useState<LessonFile[]>([])
   const [showComposer, setShowComposer] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => {
     fetchLessonFeed(lesson.id, me.id, me.qid).then(setFeed)
+    fetchLessonFiles(lesson.id).then(setLessonFiles)
   }, [lesson.id, me.id, me.qid])
 
   useEffect(() => {
     load()
   }, [load])
-  useRealtime(['questions', 'comments', 'hearts', 'submissions', 'lessons'], load)
+  useRealtime(['questions', 'comments', 'hearts', 'submissions', 'lessons', 'lesson_files'], load)
 
   // 하단 버튼을 누르면 작성칸이 열리고 그 위치로 부드럽게 스크롤된다
   function openComposer() {
@@ -48,6 +51,7 @@ export default function LessonRoom({ lesson, me }: Props) {
       <h1 className="text-xl font-black text-slate-900">{lesson.title}</h1>
 
       {lesson.content && <Collapsible title="수업 내용 / 제시문" defaultOpen>{lesson.content}</Collapsible>}
+      {lessonFiles.length > 0 && <LessonFiles files={lessonFiles} />}
       {lesson.task && <TaskBox lesson={lesson} feed={feed} onChanged={load} />}
 
       {/* 질문 작성칸 (하단 버튼으로 연다) */}
@@ -98,6 +102,32 @@ function Collapsible({ title, children, defaultOpen = false }: { title: string; 
   )
 }
 
+function LessonFiles({ files }: { files: LessonFile[] }) {
+  return (
+    <section className="card">
+      <h2 className="font-bold text-slate-800 mb-2">📎 수업 자료</h2>
+      <ul className="space-y-2">
+        {files.map((f) => (
+          <li key={f.id}>
+            <a
+              href={f.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              download={f.name}
+              className="flex items-center gap-2 bg-slate-50 hover:bg-emerald-50 rounded-lg px-3 py-2.5 transition-colors"
+            >
+              <span className="text-lg shrink-0">📄</span>
+              <span className="flex-1 min-w-0 truncate text-sm font-medium text-slate-700">{f.name}</span>
+              <span className="text-xs text-slate-400 shrink-0">{formatBytes(f.size)}</span>
+              <span className="text-emerald-600 text-sm font-bold shrink-0">받기 ↓</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function TaskBox({ lesson, feed, onChanged }: { lesson: Lesson; feed: LessonFeed; onChanged: () => void }) {
   const [text, setText] = useState('')
   const [editing, setEditing] = useState(false)
@@ -124,10 +154,19 @@ function TaskBox({ lesson, feed, onChanged }: { lesson: Lesson; feed: LessonFeed
       <h2 className="font-bold text-slate-800 mb-1">📝 과제</h2>
       <p className="text-slate-700 whitespace-pre-wrap mb-3">{lesson.task}</p>
       {sub && !editing ? (
-        <div className="bg-emerald-50 rounded-lg p-3">
-          <p className="text-xs text-emerald-700 font-bold mb-1">내 제출</p>
+        <div className={`rounded-lg p-3 ${sub.status === 'rejected' ? 'bg-red-50' : 'bg-emerald-50'}`}>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <p className="text-xs text-emerald-700 font-bold">내 제출</p>
+            {sub.status === 'approved' && <span className="text-xs text-emerald-600 font-bold">🌱 새싹 받음(승인)</span>}
+            {sub.status === 'rejected' && <span className="text-xs text-red-500 font-bold">반려됨</span>}
+          </div>
           <p className="text-slate-700 text-sm whitespace-pre-wrap">{sub.text}</p>
-          <button onClick={() => { setText(sub.text); setEditing(true) }} className="text-xs text-emerald-600 mt-2 hover:underline">수정</button>
+          {sub.status === 'rejected' && sub.teacher_feedback && (
+            <p className="text-xs text-red-500 mt-1.5">↳ 선생님 피드백: {sub.teacher_feedback}</p>
+          )}
+          <button onClick={() => { setText(sub.text); setEditing(true) }} className="text-xs text-emerald-600 mt-2 hover:underline">
+            {sub.status === 'rejected' ? '수정해서 다시 제출' : '수정'}
+          </button>
         </div>
       ) : (
         <div className="space-y-2">

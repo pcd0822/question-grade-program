@@ -20,18 +20,30 @@ export async function handler(event) {
   try {
     switch (body.action) {
       // ── 과제 답변 제출/수정 (수업당 1개, upsert) ──
+      // 새로 내거나 고쳐 내면 검토 상태를 normal 로 되돌리고, 승인됐던 새싹은 회수한다.
+      // (반려됐던 답변을 고쳐 내면 다시 검토 대상이 되도록)
       case 'submit-task': {
         const text = String(body.text || '').trim()
         if (!body.lessonId || !text) return json(400, { error: '과제 답변을 입력하세요.' })
-        const { data, error } = await admin
+        const base = { lesson_id: body.lessonId, author_id: me.id, text, updated_at: new Date().toISOString() }
+        let reviewable = true
+        let { data, error } = await admin
           .from('submissions')
-          .upsert(
-            { lesson_id: body.lessonId, author_id: me.id, text, updated_at: new Date().toISOString() },
-            { onConflict: 'lesson_id,author_id' },
-          )
+          .upsert({ ...base, status: 'normal', teacher_feedback: null }, { onConflict: 'lesson_id,author_id' })
           .select('*')
           .single()
+        // 마이그레이션 012 미적용(status 컬럼 없음)이면 상태 필드 없이 재시도
+        if (error && isMissingTable(error)) {
+          reviewable = false
+          ;({ data, error } = await admin
+            .from('submissions')
+            .upsert(base, { onConflict: 'lesson_id,author_id' })
+            .select('*')
+            .single())
+        }
         if (error) throw error
+        // 012 적용 환경에서만: 이전에 승인돼 지급된 새싹이 있으면 회수(멱등).
+        if (reviewable) await setSeed({ source: 'submission', refId: data.id, amount: 0 })
         return json(200, { submission: data })
       }
 

@@ -54,7 +54,7 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 - **개인 누적 새싹 = seed_log 합계**. 별도 카운터를 비정규화하지 않아 드리프트가 없다. **DB 컬럼 `cumulative_seeds`는 005 에서 제거됐다** — API 응답의 같은 이름 필드는 서버가 매번 계산해 채워 주는 값이다.
 - 합계 계산은 `sumSeedByStudent()` → DB 함수 **`seed_totals()`**(GROUP BY 집계). 예전처럼 seed_log 전체를 앱으로 끌어오지 않는다(PostgREST 1000행 상한 회피).
 - `admin.js`의 **`setSeed({source, refId, amount})`**: 해당 (source, ref_id)의 로그를 목표 금액으로 **재조정**(멱등). 006 이후에는 DB 함수 `set_seed`의 **단일 upsert**로 처리된다. **키는 `(source, ref_id)`뿐**이라 `amount: 0`으로 회수할 땐 studentId/lessonId를 생략해도 된다.
-- 지급 규칙: **질문 1 · 댓글 2 · 하트 보너스 1개**(질문당 상한 `lessons.heart_bonus_cap`, 기본 3). 상수는 `admin.js`의 `SEED = {QUESTION:1, COMMENT:2, HEART:1}`. 취소·반려·삭제 시 로그 제거로 회수.
+- 지급 규칙: **질문 1 · 댓글 2 · 과제 승인 2 · 하트 보너스 1개**(질문당 상한 `lessons.heart_bonus_cap`, 기본 3). 상수는 `admin.js`의 `SEED = {QUESTION:1, COMMENT:2, SUBMISSION:2, HEART:1}`. 취소·반려·삭제·재제출 시 로그 제거로 회수.
 - 하트 보너스는 질문당 **로그 1행**(`source:'heart', ref_id: questionId`)으로 유지되고, 하트를 누를 때마다 `min(하트수, cap) * 1`로 재계산된다. 하트 취소도 자동 반영.
 - **새싹 획득 상세 내역**은 `groups` 함수의 `seed-report` 액션 → 교사 화면 "새싹 내역 CSV"(형성평가 증빙). CSV 생성·다운로드는 `src/lib/csv.ts` 공용 헬퍼를 쓴다(BOM 필수 — 없으면 엑셀에서 한글이 깨진다).
 - **두 값**: ① **누적**(랭킹 기준, 교사 정정 외에는 감소 안 함) = seed_log 합. ② **보유(모둠 지갑)** = 모둠 누적 − `groups.spent_seeds`(아이템 구매로 증가). 아이템을 사도 랭킹(누적)은 안 떨어진다.
@@ -93,6 +93,8 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 9. `migrations/009_room_free_and_chat.sql` — 모둠 공간 **자유 배치**(x·y 를 격자 정수 → 공간 내 비율 numeric 0~100, 칸 유니크 해제, `room_buy` 시그니처 교체) + **모둠 채팅**(`group_chat` 테이블·RLS·Realtime).
 10. `migrations/010_repair_room_coords.sql` — 009 가 중간에 멈춰 좌표 변환·`room_buy` 교체만 빠졌던 것을 복구. 이미 적용된 부분은 건너뛴다.
 11. `migrations/011_room_item_scale.sql` — 아이템 **크기(scale) · 회전(rotation)** 컬럼.
+12. `migrations/012_submission_review.sql` — **과제 답변 승인·반려.** submissions 에 `status`(normal/approved/rejected) + `teacher_feedback` 추가, seed_log source 에 `submission`(과제) 추가. **작업 4 기능에 필수**(미적용이면 승인/반려 시 500, 제출 자체는 폴백으로 계속 동작).
+13. `migrations/013_lesson_files.sql` — **수업 자료 파일.** `lesson_files` 테이블(anon 읽기·Realtime) + Storage 공개 버킷 `lesson_files`. 미적용이면 자료 목록은 빈 배열로 graceful 동작.
 
 ⚠ **컬럼 단위 REVOKE 는 테이블 단위 GRANT 를 깎아내지 못한다.** 005 의 `revoke select (author_id) ... from anon` 은 anon 이 테이블 전체 SELECT 권한을 갖고 있어 **조용히 무시됐다**(실행은 성공하는데 효과가 없음). 컬럼을 가리려면 008 처럼 **테이블 SELECT 를 회수한 뒤 필요한 컬럼만 다시 grant** 해야 한다. 앞으로 `questions` 에 컬럼을 추가하면 anon 에게 보여줄지 판단해 008 의 grant 목록에 직접 넣어야 한다(자동으로 보이지 않는다).
 
@@ -107,7 +109,8 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 - **questions**(lesson_id, author_id, text, seed_granted) — 익명
 - **comments**(question_id, author_type=student/teacher, student_id, **author_name·author_avatar_url 비정규화**, text, status=normal/approved/rejected, teacher_feedback) — **답변(answers)을 대체.** 실명. 여러 개 가능. 교사 댓글도 여기.
 - **hearts**(question_id, student_id) — 질문당 1인 1회 unique
-- **submissions**(lesson_id, author_id, text) — 과제 답변, 수업당 1개 unique
+- **submissions**(lesson_id, author_id, text, **status**=normal/approved/rejected, **teacher_feedback**) — 과제 답변, 수업당 1개 unique. 교사가 승인(새싹 `submission` 2개)/반려(피드백). 재제출 시 status→normal·새싹 회수.
+- **lesson_files**(lesson_id, name, path, url, size, mime) — 수업 자료 파일 메타. 실물은 Storage 공개 버킷 `lesson_files`. 교사 업로드(≤4MB·base64→함수) → 학생 다운로드(공개 URL `?download=원본파일명`).
 - **badges**(lesson_id?, name, image_url, condition) / **student_badges**(student_id, badge_id) — 교사 수동 부여
 - **seed_log**(student_id, lesson_id?, source=question/comment/heart/manual/answer, ref_id, amount, granted_by) — 새싹의 단일 진실 소스
 - **room_items**(group_id, item_type, x, y) — 모둠 공간 배치
@@ -129,9 +132,9 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
 
 - `teacher-login` / `student-login` — 로그인 검증
 - `students` — 교사: 학생 목록/등록(코드 자동생성)/코드 재발급/삭제
-- `lessons` — 교사: 수업 CRUD/활성 토글
+- `lessons` — 교사: 수업 CRUD/활성 토글 + 자료 파일(list-files/add-file/delete-file). 수업 삭제 시 Storage 실물도 정리.
 - `student-actions` — 학생: 질문 등록, 댓글 작성·수정·삭제, 하트 토글, 과제 제출, 프로필 사진(set-avatar)
-- `teacher-actions` — 교사: 질문 새싹, 댓글 새싹/반려, 교사 댓글 작성·삭제
+- `teacher-actions` — 교사: 질문 새싹, 댓글 새싹/반려, 교사 댓글 작성·삭제, **과제 답변 승인(새싹)/반려**(grant-submission-seed/reject-submission)
 - `teacher-feed` — 교사 질문 대시보드 데이터(작성자 실명·아바타·모둠 + 댓글 + 과제 제출)
 - `groups` — 교사: 모둠 overview(개별/모둠/학급 통계) + 생성/이름변경/삭제/배정
 - `ranking` — 공개: 모둠 랭킹 + 학급 전체 합계(개인 이름 비노출)
@@ -171,6 +174,7 @@ React 19 + Vite 7 + TypeScript + **Tailwind 4**(`@tailwindcss/vite`, `tailwind.c
   - 바닥 격자선은 SVG(`preserveAspectRatio="none"` + `non-scaling-stroke`)로 그린다 — CSS gradient/skew 로는 선 두께가 왜곡된다.
   - **회전은 2D 시계방향이 아니라 세로축 기준 3D 회전**(`perspective() rotateY()`)이다. 물건이 제자리에서 옆으로 돌아서는 느낌이라야 한다. 조작은 **가로 드래그**로 매핑한다(`ROTATE_PX_PER_TURN`).
   - 아이템은 **위치(x·y) · 크기(scale 0.5~2.5) · 방향(rotation 0~360)** 세 값을 갖는다(011). 아이템을 톡 누르면 크기(⤢)·회전(↻) 손잡이가 나오고, 끌어서 조절한다. 세 값 모두 `move` 액션 하나로 함께 저장된다.
+  - **아이템은 진짜 3D 모형**(`components/RoomItem3D`)이다. 이모지가 아니라 preserve-3d 로 6면을 세운 직육면체(`Cuboid`) 여러 개를 조립하므로 rotation(세로축 rotateY)을 걸면 옆·뒤가 실제로 보인다. 상점 그리드·구매확인 팝업에서는 `spin` 으로 360° 자동 회전(reduced-motion 이면 정지). 새 상점 아이템을 추가하면 `shop.js` 카탈로그와 함께 `RoomItem3D` 의 `Model` switch 에 모형을 추가해야 한다(없으면 기본 상자로 렌더).
   - **모든 변경은 "끌기 → 확인/취소"**. 확인 전에는 서버에 저장하지 않는다. 확인을 누르면 선택 테두리가 사라지고, 화면은 새 상태를 유지한 채(`localPos` 임시 값) 저장만 뒤에서 진행된다 — **서버 응답을 기다려 아이템이 뒤늦게 움직이는 지연이 없어야 한다.** 저장 중에도 계속 만질 수 있게 `editable` 은 `busy` 와 무관하다.
   - 상점은 별도 섹션이 아니라 **방 안 좌하단 버튼 → 팝업**(`ShopModal`)이다. 구매를 확정하면 팝업이 닫혀 새 아이템이 바로 보인다.
 - **모둠 채팅**(`group_chat`): 우리 모둠에서만 보이고 쓸 수 있다. 댓글과 같은 이유로 이름·아바타를 행에 **비정규화 저장**하며, 프로필 사진을 바꾸면 기존 댓글과 함께 채팅 아바타도 서버에서 갱신한다.

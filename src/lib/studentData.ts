@@ -1,7 +1,18 @@
 // 학생 화면용 읽기 (anon Supabase). 질문은 익명, 댓글은 실명(비정규화된 이름/아바타).
 import { supabase } from './supabase'
-import type { Badge, Comment, Lesson, Question, Submission } from '../types'
+import type { Badge, Comment, Lesson, LessonFile, Question, Submission } from '../types'
 import type { ChatMessage } from './studentApi'
+
+/** 수업 자료 파일 목록 (anon 읽기 — 개인정보 없음). 마이그레이션 013 미적용이면 빈 배열. */
+export async function fetchLessonFiles(lessonId: string): Promise<LessonFile[]> {
+  const { data, error } = await supabase
+    .from('lesson_files')
+    .select('*')
+    .eq('lesson_id', lessonId)
+    .order('created_at', { ascending: true })
+  if (error) return []
+  return (data as LessonFile[]) || []
+}
 
 /** 내가 받은 배지 */
 export async function fetchMyBadges(studentId: string): Promise<Badge[]> {

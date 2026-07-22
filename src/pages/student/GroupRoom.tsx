@@ -4,6 +4,7 @@ import { room, student, type ChatMessage, type RoomState, type ShopItem } from '
 import { fetchGroupChat } from '../../lib/studentData'
 import { useRealtime } from '../../hooks/useRealtime'
 import Avatar from '../../components/Avatar'
+import RoomItem3D from '../../components/RoomItem3D'
 import type { RoomSideData } from '../StudentDashboard'
 
 interface Props {
@@ -387,6 +388,7 @@ function Room3D({
   const [localPos, setLocalPos] = useState<Record<string, Placement>>({})
 
   // 서버가 새 값을 돌려줬거나 아이템이 사라지면 임시 상태를 정리한다
+  // (emojiOf 는 3D 모형으로 대체돼 더 이상 쓰지 않는다)
   useEffect(() => {
     setLocalPos((prev) => {
       const next = { ...prev }
@@ -407,8 +409,6 @@ function Room3D({
       return changed ? next : prev
     })
   }, [items])
-
-  const emojiOf = (type: string) => shop.find((s) => s.type === type)?.emoji || '❓'
 
   /** 아이템을 지금 어떤 상태로 그려야 하는가 (끄는 중 → 확인 대기 → 임시 값 → 서버 값) */
   function placementOf(it: RoomState['items'][number]): Placement {
@@ -631,17 +631,8 @@ function Room3D({
                 }}
                 title={shop.find((sh) => sh.type === it.item_type)?.name || it.item_type}
               >
-                {/* 회전은 그림에만 걸어 크기·그림자와 분리한다.
-                    세로축(Y축)을 중심으로 도는 3D 회전이라 옆으로 돌아서는 것처럼 보인다. */}
-                <span
-                  className="block text-4xl leading-none"
-                  style={{
-                    transform: `perspective(420px) rotateY(${live.rotation}deg)`,
-                    transformOrigin: 'center',
-                  }}
-                >
-                  {emojiOf(it.item_type)}
-                </span>
+                {/* 진짜 3D 모형. 세로축(Y축) 회전이라 끌면 옆·뒤가 실제로 보인다. */}
+                <RoomItem3D type={it.item_type} rotation={live.rotation} size={54} />
                 {/* 바닥 그림자 — 바닥에 선 물건에만 */}
                 {onFloor && (
                   <span
@@ -759,7 +750,7 @@ function ShopModal({
                     afford ? 'bg-white border-slate-200 hover:border-emerald-300' : 'bg-slate-50 border-slate-100 opacity-50'
                   }`}
                 >
-                  <span className="text-3xl">{s.emoji}</span>
+                  <RoomItem3D type={s.type} size={52} spin />
                   <span className="text-xs font-medium text-slate-700 mt-1">{s.name}</span>
                   <span className="text-xs font-bold text-emerald-600">🌱 {s.price}</span>
                 </button>
@@ -799,8 +790,8 @@ function BuyConfirm({
         className="bg-white rounded-3xl shadow-2xl w-full max-w-xs p-6 text-center"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="w-24 h-24 mx-auto rounded-2xl bg-emerald-50 flex items-center justify-center text-6xl">
-          {item.emoji}
+        <div className="w-24 h-24 mx-auto rounded-2xl bg-emerald-50 flex items-center justify-center">
+          <RoomItem3D type={item.type} size={80} spin />
         </div>
         <p className="font-black text-slate-900 text-xl mt-3">{item.name}</p>
         <p className="text-emerald-600 font-bold mt-0.5">🌱 {item.price}</p>

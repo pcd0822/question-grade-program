@@ -1,7 +1,7 @@
 // 교사 쓰기/조회 API 래퍼 — 저장된 교사 코드를 자동으로 붙인다.
 import { callFn } from './api'
 import { getTeacherCode } from './session'
-import type { Badge, Comment, Lesson, QuestionStage, Student } from '../types'
+import type { Badge, Comment, Lesson, LessonFile, QuestionStage, Student } from '../types'
 
 function tc() {
   return getTeacherCode() || ''
@@ -30,6 +30,8 @@ export interface TeacherFeedSubmission {
   lesson_id: string
   author_id: string
   text: string
+  status: 'normal' | 'approved' | 'rejected'
+  teacher_feedback: string | null
   created_at: string
   updated_at: string
   author: FeedAuthor | null
@@ -88,6 +90,14 @@ export const teacher = {
     callFn('lessons', { action: 'toggle-active', teacherCode: tc(), id, active }),
   deleteLesson: (id: string) => callFn('lessons', { action: 'delete', teacherCode: tc(), id }),
 
+  // 수업 자료 파일
+  listLessonFiles: (lessonId: string) =>
+    callFn<{ files: LessonFile[] }>('lessons', { action: 'list-files', teacherCode: tc(), lessonId }).then((r) => r.files),
+  addLessonFile: (lessonId: string, name: string, dataUrl: string) =>
+    callFn<{ file: LessonFile }>('lessons', { action: 'add-file', teacherCode: tc(), lessonId, name, dataUrl }).then((r) => r.file),
+  deleteLessonFile: (fileId: string) =>
+    callFn('lessons', { action: 'delete-file', teacherCode: tc(), fileId }),
+
   // 질문 대시보드
   feed: (lessonId: string) =>
     callFn<{ questions: TeacherFeedQuestion[]; submissions: TeacherFeedSubmission[] }>('teacher-feed', {
@@ -100,6 +110,10 @@ export const teacher = {
     callFn('teacher-actions', { action: 'grant-comment-seed', teacherCode: tc(), commentId, on }),
   rejectComment: (commentId: string, feedback: string) =>
     callFn('teacher-actions', { action: 'reject-comment', teacherCode: tc(), commentId, feedback }),
+  grantSubmissionSeed: (submissionId: string, on: boolean) =>
+    callFn('teacher-actions', { action: 'grant-submission-seed', teacherCode: tc(), submissionId, on }),
+  rejectSubmission: (submissionId: string, feedback: string) =>
+    callFn('teacher-actions', { action: 'reject-submission', teacherCode: tc(), submissionId, feedback }),
   addComment: (questionId: string, text: string) =>
     callFn('teacher-actions', { action: 'add-teacher-comment', teacherCode: tc(), questionId, text }),
   deleteComment: (commentId: string) =>

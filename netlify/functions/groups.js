@@ -4,6 +4,7 @@ import { admin, json, parseBody, requireTeacher, sumSeedByStudent, fetchAll } fr
 const SOURCE_LABEL = {
   question: '질문',
   comment: '댓글',
+  submission: '과제',
   answer: '답변(구)',
   heart: '하트 보너스',
   manual: '수동 조정',
@@ -87,12 +88,16 @@ export async function handler(event) {
         // 근거 본문은 실제로 참조된 id 만 골라 조회한다.
         const qIds = [...new Set(logs.filter((l) => l.source === 'question' || l.source === 'heart').map((l) => l.ref_id).filter(Boolean))]
         const cIds = [...new Set(logs.filter((l) => l.source === 'comment' || l.source === 'answer').map((l) => l.ref_id).filter(Boolean))]
-        const [questions, comments] = await Promise.all([
+        const sIds = [...new Set(logs.filter((l) => l.source === 'submission').map((l) => l.ref_id).filter(Boolean))]
+        const [questions, comments, submissions] = await Promise.all([
           qIds.length
             ? fetchAll((from, to) => admin.from('questions').select('id, text').in('id', qIds).range(from, to))
             : Promise.resolve([]),
           cIds.length
             ? fetchAll((from, to) => admin.from('comments').select('id, text').in('id', cIds).range(from, to))
+            : Promise.resolve([]),
+          sIds.length
+            ? fetchAll((from, to) => admin.from('submissions').select('id, text').in('id', sIds).range(from, to))
             : Promise.resolve([]),
         ])
 
@@ -102,6 +107,7 @@ export async function handler(event) {
         const refText = new Map([
           ...questions.map((q) => [q.id, q.text]),
           ...comments.map((c) => [c.id, c.text]),
+          ...submissions.map((s) => [s.id, s.text]),
         ])
 
         const rows = logs.map((l) => {

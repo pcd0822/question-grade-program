@@ -75,6 +75,50 @@ export async function handler(event) {
         return json(200, { ok: true })
       }
 
+      // ── 과제 답변 승인(새싹 지급)/취소 (토글) ──
+      case 'grant-submission-seed': {
+        const on = body.on !== false
+        const { data: s } = await admin
+          .from('submissions')
+          .select('id, author_id, lesson_id')
+          .eq('id', body.submissionId)
+          .maybeSingle()
+        if (!s) return json(404, { error: '과제 제출을 찾을 수 없습니다.' })
+
+        await admin
+          .from('submissions')
+          .update({ status: on ? 'approved' : 'normal', teacher_feedback: on ? null : undefined })
+          .eq('id', s.id)
+        await setSeed({
+          studentId: s.author_id,
+          lessonId: s.lesson_id,
+          source: 'submission',
+          refId: s.id,
+          amount: on ? SEED.SUBMISSION : 0,
+        })
+        return json(200, { ok: true, status: on ? 'approved' : 'normal' })
+      }
+
+      // ── 과제 답변 반려 + 피드백 (지급됐던 새싹 회수) ──
+      case 'reject-submission': {
+        const feedback = String(body.feedback || '').trim()
+        if (!body.submissionId) return json(400, { error: 'submissionId 누락' })
+        if (!feedback) return json(400, { error: '반려 사유(피드백)를 입력하세요.' })
+        const { data: s } = await admin
+          .from('submissions')
+          .select('id')
+          .eq('id', body.submissionId)
+          .maybeSingle()
+        if (!s) return json(404, { error: '과제 제출을 찾을 수 없습니다.' })
+
+        await admin
+          .from('submissions')
+          .update({ status: 'rejected', teacher_feedback: feedback })
+          .eq('id', body.submissionId)
+        await setSeed({ source: 'submission', refId: body.submissionId, amount: 0 })
+        return json(200, { ok: true })
+      }
+
       // ── 교사 댓글(피드백) 작성 ──
       case 'add-teacher-comment': {
         const text = String(body.text || '').trim()
